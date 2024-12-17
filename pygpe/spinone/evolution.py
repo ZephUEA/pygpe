@@ -24,24 +24,45 @@ def step_wavefunction(wfn: SpinOneWavefunction, params: dict) -> None:
 
 def _kinetic_zeeman_step(wfn: SpinOneWavefunction, pm: dict) -> None:
     """Computes the kinetic-zeeman subsystem for half a time step.
+    Works with the quadratic zeeman shift being linearly dependent on time as well.
 
     :param wfn: The wavefunction of the system.
-    :param pm: The parameter. dictionary.
+    :param pm: The parameters dictionary.
     """
-    wfn.fourier_plus_component *= cp.exp(
-        -0.25 * 1j * pm["dt"] * (wfn.grid.wave_number + 2 * pm["q"])
-    )
-    wfn.fourier_zero_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
-    wfn.fourier_minus_component *= cp.exp(
-        -0.25 * 1j * pm["dt"] * (wfn.grid.wave_number + 2 * pm["q"])
-    )
+
+    if "dq" not in pm or pm["dq"] == 0:
+        wfn.fourier_plus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * (wfn.grid.wave_number + 2 * pm["q"] )
+        )
+        wfn.fourier_zero_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
+        wfn.fourier_minus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * (wfn.grid.wave_number + 2 * pm["q"])
+        )
+
+    elif pm["dq"] > 0:
+        wfn.fourier_plus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * ( wfn.grid.wave_number + 2 * pm["q"] + ( abs( pm["c2"] ) * pm["n0"] * pm["dt"] ) / ( pm["tau_q"] ) )
+        )
+        wfn.fourier_zero_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
+        wfn.fourier_minus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * ( wfn.grid.wave_number + 2 * pm["q"] + ( abs( pm["c2"] ) * pm["n0"] * pm["dt"] ) / ( pm["tau_q"] ) )
+        )
+
+    else:
+        wfn.fourier_plus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * ( wfn.grid.wave_number + 2 * pm["q"] - ( abs( pm["c2"] ) * pm["n0"] * pm["dt"] ) / ( pm["tau_q"] ) )
+        )
+        wfn.fourier_zero_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
+        wfn.fourier_minus_component *= cp.exp(
+            -0.25 * 1j * pm["dt"] * ( wfn.grid.wave_number + 2 * pm["q"] - ( abs( pm["c2"] ) * pm["n0"] * pm["dt"] ) / ( pm["tau_q"] ) )
+        )
 
 
 def _interaction_step(wfn: SpinOneWavefunction, pm: dict) -> None:
     """Computes the interaction subsystem for a full time step.
 
     :param wfn: The wavefunction of the system.
-    :param pm: The parameters' dictionary.
+    :param pm: The parameters dictionary.
     """
     spin_perp, spin_z = _calculate_spins(wfn)
     spin_mag = cp.sqrt(abs(spin_perp) ** 2 + spin_z**2)
@@ -49,7 +70,7 @@ def _interaction_step(wfn: SpinOneWavefunction, pm: dict) -> None:
 
     # Trig terms needed in solution
     cos_term = cp.cos(pm["c2"] * spin_mag * pm["dt"])
-    sin_term = cp.nan_to_num(1j * cp.sin(pm["c2"] * spin_mag * pm["dt"]))
+    sin_term = 1j * cp.nan_to_num( cp.sin(pm["c2"] * spin_mag * pm["dt"]) / spin_mag )
 
     plus_comp_temp = cos_term * wfn.plus_component - sin_term * (
         spin_z * wfn.plus_component

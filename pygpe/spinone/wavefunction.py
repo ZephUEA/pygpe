@@ -46,7 +46,7 @@ class SpinOneWavefunction(_Wavefunction):
         """Sets the components of the wavefunction according to
         the ground state we wish to be in.
 
-        :param ground_state: "polar", "ferromagnetic", or "antiferromagnetic".
+        :param ground_state: "polar", "ferromagnetic", "antiferromagnetic" or "BA".
             The ground state of the wavefunction.
         :param params: Dictionary containing condensate parameters.
         """
