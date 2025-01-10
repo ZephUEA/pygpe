@@ -1,4 +1,7 @@
-import imageio.v2 as imageio
+try:
+    import imageio.v2 as imageio
+except ModuleNotFoundError:
+    import imageio
 from pathlib import Path
 import os
 os.environ["IMAGEIO_FFMPEG_EXE"] = "/Applications/ffmpeg"
@@ -16,6 +19,13 @@ def prettyString( params:dict, show:list[str] ) -> str:
             continue
         string += f'{key} = {value:.3f}, '
     return string[:-2]
+
+def averageFile( fileName:str ) -> float:
+    with open( fileName, 'r' ) as file:
+        total = 0
+        for line in file.readlines():
+            total += float( line.strip() )
+    return total / len( file.readlines() )
 
 def chemicalArgument( phase:str, scalars:dict ) -> cp.ndarray:
     '''Returns the chemical potential at each point in time'''
@@ -184,5 +194,5 @@ def createMovie( waveFunc, scalars:dict, movieName:str, chartType:str, titleElem
 
 
 if __name__ == '__main__':
-    movieFromFrames( 'kzm2dt1000.mp4', 'frames' )
+    movieFromFrames( 'tau_q=900Test.mp4', 'frames' )
     
