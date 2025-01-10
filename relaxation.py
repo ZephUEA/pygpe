@@ -6,6 +6,7 @@ try:
     import cupy as cp  # type: ignore
 except ImportError:
     import numpy as cp
+
 import pygpe.shared.vortices as vort
 
 import pygpe.spinone as gpe
@@ -102,7 +103,7 @@ def majorityUp( grid, params, multiplicity ):
 
 def majorityUpVortex( grid, params, multiplicity ):
     psi = majorityUp( grid, params, multiplicity )
-    phase = vort._calculate_vortex_contribution( grid, 0, 0, 1 )
+    phase = vort.add_dipole_pair( grid, 10 )
     psi.apply_phase( phase, ['plus'] )
     return psi
     
