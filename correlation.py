@@ -90,6 +90,10 @@ def firstZero( arrIn:cp.ndarray, end:int, start:int=0 ) -> int:
         return firstZero( arrIn, newVal, start )
     return firstZero( arrIn, end, newVal )
 
+def bestFitLine( xs: cp.ndarray, ys:cp.ndarray ) -> tuple[float,float]:
+    b, m = cp.polynomial.polynomial.polyfit( xs, ys, 1)
+    return ( b, m )
+
 if __name__ == '__main__':
     xs = cp.linspace( -10,10,1000 )    
     ys = xs ** 2 - 1
