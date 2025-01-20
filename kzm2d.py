@@ -34,16 +34,6 @@ def hdf5ReadScalars( hdf5Obj, prepend:str='', makeUnique:bool=False ) -> dict:
                 resultsDict.update( { dictName : data[()] } )
     return resultsDict
 
-def firstZero( xs:cp.ndarray, ys:cp.ndarray ) -> float:
-    '''Finds the x value where y first crosses 0, 
-    xs and ys should have equal length'''
-    assert len( xs ) == len( ys )
-    for index in range( len( ys ) ):
-        if ys[ index ] * ys[ index + 1 ] < 0:
-            return xs[ index ]
-    return None
-
-
 def countRegions( waveFunc, scalars, orderFunc, frame:int ) -> int:
     
     def mask( coord, scalars ):
@@ -52,7 +42,7 @@ def countRegions( waveFunc, scalars, orderFunc, frame:int ) -> int:
         ny = scalars["ny"]
         return [((x-1) % nx,y),((x+1) % nx,y),(x,(y-1) % ny),(x,(y+1) % ny)]
     
-    
+    currTime = time.time()
     orderParam = orderFunc( waveFunc, frame )
     regions = set( map( lambda x: tuple(x), handle_array( cp.argwhere( abs( orderParam ) > 0.7 ) ) ) )
     count = 0
@@ -60,14 +50,16 @@ def countRegions( waveFunc, scalars, orderFunc, frame:int ) -> int:
         startCoord = regions.pop()
         regions.add( startCoord )
         currentRegion = { startCoord }
+        foundCoords = set()
         while len( currentRegion ) > 0:
             currentCoord = currentRegion.pop()
+            foundCoords.add( currentCoord )
             regions.remove( currentCoord )
             for item in mask( currentCoord, scalars ):
                 if item in regions and item not in currentRegion:
                     currentRegion.add( item )
-
-        count += 1
+        if len( foundCoords ) > 100:
+            count += 1
     return count
         
 
@@ -109,22 +101,38 @@ def getData( psi, params:dict, fileName:str, dataPath:str ) -> None:
         gpe.step_wavefunction(psi, params)
 
         params["t"] += params["dt"]  # Increment time count
-        params["q"] = ( params["Q_0"] - ( params["t"].real / params["tau_q"] ) ) * abs( params["c2"] ) * params["n0"]
+
+        if params["dq"] < 0:
+            params["q"] = ( params["Q_0"] - ( params["t"].real / params["tau_q"] ) ) * abs( params["c2"] ) * params["n0"]
+            if params["t"] >= params["tau_q"] * 2:
+                params["dq"] = 0
 
 
-def chartCorrelator( psi, scalars, fileName ) -> None:
+
+def chartCorrelator( psi, scalars, fileName, scale = False ) -> None:
     zeroTime = int( scalars["tau_q"] / ( scalars["dt"] * scalars['frameRate'] ) )
     freezingTime = int( cp.sqrt( scalars["tau_q"] ) )
     correlation = corr.correlatorFM( psi, scalars )
     ( xs, averageCorrelation ) = corr.radialAverage( correlation, scalars )
-    times = list( filter( lambda x: x < averageCorrelation.shape[ 1 ], [ zeroTime + i for i in range( 0, 2 * freezingTime , freezingTime // 5 ) ] ) )
+    times = list( filter( lambda x: x < averageCorrelation.shape[ 1 ], [ zeroTime + i for i in range( 0, 4 * freezingTime , freezingTime // 2 ) ] ) )
     for time in times:
-        plt.plot( handle_array( xs ), handle_array( averageCorrelation[:,time] ) )
-    plt.xlabel('Radial Distance')
+        if scale:
+            endpoint = min( enumerate( averageCorrelation[ :,time ] ), key=lambda x: x[ 1 ] )[ 0 ]
+            try:
+                firstZero = corr.firstZero( averageCorrelation[ :, time ], endpoint )
+                divider = xs[ firstZero ]
+            except AssertionError:
+                divider = 1
+        else:
+            divider = 1
+        plt.plot( handle_array( xs / divider ), handle_array( averageCorrelation[:,time] ) )
+    plt.xlim( 0, 6 )
+    plt.xlabel('Radial Distance x/L(t)')
     plt.ylabel('Correlation')
     plt.legend( [ 't= ' + str( ( time - zeroTime ) * ( scalars["dt"] * scalars["frameRate"] ) )  for time in times ] )
-    plt.title('Time since transition \nWith:'  + ani.prettyString(scalars, ['Q_0','tau_q', 'p'] ) )
+    plt.title('Correlation vs normalised radius\nTime since transition: ' + ani.prettyString(scalars, ['Q_0','tau_q', 'p'] ) )
     plt.savefig( fileName )
+    plt.cla()
 
 def chartAtomNumber( psi, scalars, fileName ) -> None:
     zeroTime = scalars["tau_q"]
@@ -140,6 +148,7 @@ def chartAtomNumber( psi, scalars, fileName ) -> None:
     plt.title( 'Atom Number' )
     plt.legend(['Analytic', f'tau_q={scalars["tau_q"]}'])
     plt.show()
+    plt.cla()
     
 def countDomains( psi, scalars, givenFrame=None ):
 
@@ -164,13 +173,22 @@ def maxDomains( psi, scalars ):
             return currMax
         currMax = domains
 
-def plotCoursening( psi, scalars ):
+def plotCoursening( psi, scalars, threshold ):
     totalFrames = int( scalars["nt"] / scalars['frameRate'] )
-    times = cp.linspace( 0, ( scalars["nt"] * scalars["dt"] ), totalFrames )
+    
     domains = []
-    for frame in range(totalFrames):
+    flag = False
+    for frame in range( totalFrames ):
         domains.append( countDomains( psi, scalars, givenFrame=frame ) )
-    plt.plot( times - scalars["tau_q"], domains )
+        if domains[ -1 ] > threshold:
+            flag = True
+        if flag == True and domains[ -1 ] < threshold:
+            break
+
+    times = cp.linspace( 0, ( scalars["nt"] * scalars["dt"] ), totalFrames )[:len(domains)]
+    transitionStartIndex = domains.index( next( filter( lambda x: x != 0, domains ) ) )
+    print( transitionStartIndex )
+    plt.loglog( times[transitionStartIndex:] - scalars["tau_q"], domains[transitionStartIndex:] )
     plt.title('Coursening')
     plt.xlabel('Time')
     plt.ylabel('Domains')
@@ -236,14 +254,15 @@ def main( recalculate:bool=False ):
     # vorticity = corr.pseudoVorticity( waveFunc )
     # ani.createFrames( waveFunc, scalars, 'frames', 'MAG', ['tau_q'] )
     
-    # if not cupyImport:
-    #     chartName = 'correlators/kzm_correlator_t900.png'
-    #     chartCorrelator( waveFunc, scalars, chartName )
+    if not cupyImport:
+        chartName = 'correlators/kzm_correlator_t900PrimeV2.png'
+        chartCorrelator( waveFunc, scalars, chartName, True )
 
     # chartAtomNumber( waveFunc, scalars, 'potato' )
-    print( countDomains( waveFunc, scalars ) )
-    print( maxDomains( waveFunc, scalars ) )
-    plotCoursening( waveFunc, scalars )
+
+    # print( countDomains( waveFunc, scalars ) )
+    # print( maxDomains( waveFunc, scalars ) )
+    plotCoursening( waveFunc, scalars, 10 )
 
     # with open( f'./dataFiles/domains{tau_q}.txt', 'a' ) as file:
     #     file.write('\n')
