@@ -27,7 +27,7 @@ def createCircle( shape:tuple[int,int], distance:float, center:tuple[int,int]=(0
                 count += 1
     return array / count
 
-def radialAverage( component:cp.ndarray, scalars:dict ) -> tuple[cp.ndarray]:
+def radialAverage( component:cp.ndarray, scalars:dict ) -> tuple[cp.ndarray, cp.ndarray]:
     nx = scalars["nx"]
     ny = scalars["ny"]
     dx = scalars["dx"] # Currently only works if dx = dy i.e. a square grid
@@ -74,3 +74,23 @@ def pseudoVorticity( psi:dict ) -> dict:
     minusVorticity = cross2D( cp.gradient( minusComp.real, axis=(0,1) ), cp.gradient( minusComp.imag, axis=(0,1) ) )
     return { 'psi_plus':plusVorticity, 'psi_zero':zeroVorticity, 'psi_minus': minusVorticity }
    
+
+def firstZero( arrIn:cp.ndarray, end:int, start:int=0 ) -> int:
+    '''Find the index of the first zero of a function implicitly defined:
+    I shall write a quick bisection method'''
+    try:
+        assert arrIn[start] * arrIn[end] <= 0
+    except AssertionError:
+        raise AssertionError( 'Endpoints too far apart, both points now have the same sign' )
+    
+    if arrIn[start] == 0 or abs( start - end) <= 1:
+        return start
+    newVal = ( start + end ) // 2
+    if arrIn[ newVal ] * arrIn[start] <= 0:
+        return firstZero( arrIn, newVal, start )
+    return firstZero( arrIn, end, newVal )
+
+if __name__ == '__main__':
+    xs = cp.linspace( -10,10,1000 )    
+    ys = xs ** 2 - 1
+    print( firstZero( ys, 500 ) )

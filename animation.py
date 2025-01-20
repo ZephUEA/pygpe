@@ -194,5 +194,5 @@ def createMovie( waveFunc, scalars:dict, movieName:str, chartType:str, titleElem
 
 
 if __name__ == '__main__':
-    movieFromFrames( 'tau_q=900Test.mp4', 'frames' )
+    movieFromFrames( 'tau_q=900TestQEnd-1.mp4', 'frames' )
     
