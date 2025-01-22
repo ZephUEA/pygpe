@@ -2,44 +2,42 @@ try:
     import cupy as cp  # type: ignore
 except ImportError:
     import numpy as cp
+import time
 
-def cross2D( tup1:tuple, tup2:tuple ):
+def cross2D( tup1:tuple[float,float], tup2:tuple[float,float] ):
     return tup1[0] * tup2[1] - tup1[1] * tup2[0]
 
-def createCircle( shape:tuple[int,int], distance:float, center:tuple[int,int]=(0,0) ) -> cp.ndarray:
-    
-    def modulo( n:int, m:int ) -> int:
-        '''Returns a modulo function centered around 0'''
-        modulus = n % m
-        if modulus > m // 2:
-            return modulus - m
-        return modulus
+def createCircles( shape:tuple[int,int] ):
+    '''
+    Returns an un-normalised np.array of circles of increasing size
+    '''
+    def circle( i:cp.ndarray, j:cp.ndarray, k:cp.ndarray ) -> cp.ndarray:
+        imod = cp.concatenate( ( i[ :i.shape[0] // 2, :, : ], i[ i.shape[0] // 2:, :, : ] - i.shape[0] ), axis=0 )
+        jmod = cp.concatenate( ( j[ :, :j.shape[1] // 2, : ], j[ :, j.shape[1] // 2:, : ] - j.shape[1] ), axis=1 )
+        d = cp.sqrt( imod ** 2 + jmod ** 2 ) 
+        smallCircle = d < k +1
+        largeCircle = d >= k
+        ring = smallCircle & largeCircle
+        summation = cp.sum( ring, axis=(0,1))
+        return ring / summation
 
-    array = cp.zeros( shape )
-    centerx = center[0]
-    centery = center[1]
-    count = 0
-    for i in range( shape[0] ):
-        for j in range( shape[1] ):
-            d = cp.sqrt( modulo( centerx - i, shape[0] ) ** 2 + modulo( centery - j, shape[1] ) ** 2 )
-            if distance <= d and d < distance + 1:
-                array[i,j] = 1
-                count += 1
-    return array / count
+    array = cp.fromfunction( circle, ( shape[0], shape[1], min( shape[0], shape[1] ) // 2 ) )
+
+    return array
 
 def radialAverage( component:cp.ndarray, scalars:dict ) -> tuple[cp.ndarray, cp.ndarray]:
     nx = scalars["nx"]
     ny = scalars["ny"]
     dx = scalars["dx"] # Currently only works if dx = dy i.e. a square grid
     shape = ( nx, ny )
-    size = min( nx, ny ) // 2 # With periodic BCs we dont want to start counting points closer to the center again
-    averageArray = cp.zeros( ( size, component.shape[ 2 ] ) )
-    for distance in range( size ):
-        circle = createCircle( shape, distance )
-        averageArray[distance,:] = cp.sum( circle[:,:,None] * component, axis=(0,1) )
+    size = min( nx, ny ) // 2
+    circles = createCircles( shape )
+    averageArray = cp.zeros( ( size, component.shape[2] ) )
+    for i in range( component.shape[2] ):
+        averageArray[:,i] = cp.sum( circles * component[:,:,i,None], axis=(0,1) )
+    # averageArray = cp.sum( circles[:,:,:,None] * component[:,:,None,:], axis=(0,1) ) #Uses way too much memory
     xs = cp.linspace( 0, size * dx, size )
     return ( xs, averageArray )
-
 
 def correlatorFM( psi:dict, scalars:dict ) -> cp.ndarray:
     nx = scalars["nx"]
@@ -95,6 +93,6 @@ def bestFitLine( xs: cp.ndarray, ys:cp.ndarray ) -> tuple[float,float]:
     return ( b, m )
 
 if __name__ == '__main__':
-    xs = cp.linspace( -10,10,1000 )    
-    ys = xs ** 2 - 1
-    print( firstZero( ys, 500 ) )
+    start=time.time()
+    createCircles( (512,512) )
+    print( time.time()-start)
