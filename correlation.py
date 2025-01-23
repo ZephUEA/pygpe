@@ -9,9 +9,12 @@ def cross2D( tup1:tuple[float,float], tup2:tuple[float,float] ):
 
 def createCircles( shape:tuple[int,int] ):
     '''
-    Returns an un-normalised np.array of circles of increasing size
+    Returns a normalised cp.ndarray of circles of increasing size
     '''
     def circle( i:cp.ndarray, j:cp.ndarray, k:cp.ndarray ) -> cp.ndarray:
+        i = cp.array( i ) # Have to coerce i,j,k from np.arrays to cp.arrays
+        j = cp.array( j )
+        k = cp.array( k )
         imod = cp.concatenate( ( i[ :i.shape[0] // 2, :, : ], i[ i.shape[0] // 2:, :, : ] - i.shape[0] ), axis=0 )
         jmod = cp.concatenate( ( j[ :, :j.shape[1] // 2, : ], j[ :, j.shape[1] // 2:, : ] - j.shape[1] ), axis=1 )
         d = cp.sqrt( imod ** 2 + jmod ** 2 ) 
