@@ -2,7 +2,6 @@ try:
     import cupy as cp  # type: ignore
 except ImportError:
     import numpy as cp
-import time
 
 def cross2D( tup1:tuple[float,float], tup2:tuple[float,float] ):
     return tup1[0] * tup2[1] - tup1[1] * tup2[0]
@@ -75,27 +74,15 @@ def pseudoVorticity( psi:dict ) -> dict:
     minusVorticity = cross2D( cp.gradient( minusComp.real, axis=(0,1) ), cp.gradient( minusComp.imag, axis=(0,1) ) )
     return { 'psi_plus':plusVorticity, 'psi_zero':zeroVorticity, 'psi_minus': minusVorticity }
    
-
-def firstZero( arrIn:cp.ndarray, end:int, start:int=0 ) -> int:
-    '''Find the index of the first zero of a function implicitly defined:
-    I shall write a quick bisection method'''
-    try:
-        assert arrIn[start] * arrIn[end] <= 0
-    except AssertionError:
-        raise AssertionError( 'Endpoints too far apart, both points now have the same sign' )
-    
-    if arrIn[start] == 0 or abs( start - end) <= 1:
-        return start
-    newVal = ( start + end ) // 2
-    if arrIn[ newVal ] * arrIn[start] <= 0:
-        return firstZero( arrIn, newVal, start )
-    return firstZero( arrIn, end, newVal )
+def firstZero( arrIn:cp.ndarray ) -> int:
+    for index, element in enumerate( arrIn ):
+        if element * arrIn[ 0 ] <= 0:
+            return index
+    raise ValueError( 'Function has no Zeros' )
 
 def bestFitLine( xs: cp.ndarray, ys:cp.ndarray ) -> tuple[float,float]:
     b, m = cp.polynomial.polynomial.polyfit( xs, ys, 1)
     return ( b, m )
 
 if __name__ == '__main__':
-    start=time.time()
-    createCircles( (512,512) )
-    print( time.time()-start)
+    print( firstZero(cp.linspace(-10,10,100)) )
