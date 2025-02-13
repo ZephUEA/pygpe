@@ -81,8 +81,17 @@ def firstZero( arrIn:cp.ndarray ) -> int:
     raise ValueError( 'Function has no Zeros' )
 
 def bestFitLine( xs: cp.ndarray, ys:cp.ndarray ) -> tuple[float,float]:
-    b, m = cp.polynomial.polynomial.polyfit( xs, ys, 1)
+    b, m = cp.polynomial.polynomial.polyfit( xs, ys, 1 )
     return ( b, m )
+
+def r2( xs: cp.ndarray, ys: cp.ndarray ) -> float:
+    coeffs = cp.polynomial.polynomial.polyfit( xs, ys, 1 )
+    p = cp.polynomial.polynomial.Polynomial( coeffs )
+    yhat = p( xs )
+    ybar = cp.sum( ys ) / len( ys )
+    ssreg = cp.sum( ( yhat - ybar ) ** 2 )
+    sstot = cp.sum( ( ys - ybar ) ** 2 )
+    return ssreg / sstot
 
 if __name__ == '__main__':
     print( firstZero(cp.linspace(-10,10,100)) )

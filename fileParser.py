@@ -7,16 +7,17 @@ if __name__ == '__main__':
     domainMaxes = []
     transitionTimes = []
     transitionCorrelations = []
-    choices = range( 15, 55, 5)
+    choices = range( 0, 55, 5 )
     quenchTimes = []
     for integer in choices:
-        maxDomains = []
-        transitions = []
+        allLengths = []
+        allTimes = []
         with h5py.File( f'./data/scratch/domains{integer**2}.hdf5', 'r' ) as file:
+            quenchEndtime = integer**2
             for run in file.keys():
                 domains = np.array( file[run]['Domains'][()])
                 correlator = np.array( file[run]['Correlations'][()] )
-                radii = np.array( file[run]['Radii'][:256] )# Due to a slight error, i have an array thats 2x too big
+                radii = np.array( file[run]['Radii'] )
                 times = np.array( file[run]['Times'][()] )
                 firstZeros = np.zeros( times.shape )
                 for index in range( times.shape[0] ):
@@ -29,19 +30,33 @@ if __name__ == '__main__':
                 lengths = []
                 for time in range(len(times)):
                     lengths.append( radii[ corr.firstZero( correlator[time,:] ) ] )
-                plt.plot( times, lengths )
-            plt.axvline( times[transitionIndex] )
+                plt.loglog( times[transitionIndex:], lengths[transitionIndex:], label='_nolegend_' )
+                allTimes += list( times[transitionIndex+30:] )
+                allLengths += list( lengths[transitionIndex+30:] )
+            plt.axvline( 0, color='blue' )
+            plt.axvline( times[transitionIndex], color='red' )
+            plt.axvline( quenchEndtime, color='green' )
+            ts = np.array( allTimes )
+            b,m = corr.bestFitLine( np.log10( ts ), np.log10( np.array( allLengths ) ) )
+            r2 = corr.r2( np.log10( ts ), np.log10( np.array( allLengths ) ) )
+            tprime = np.linspace( min( ts ), max( ts ), 1000 )
+            # plt.loglog( tprime, 10**b * tprime**m, color='black' )
             plt.xlabel( 'T - tau' )
             plt.ylabel( 'L(t)' )
             plt.title( f'quench time = {integer**2}' )
+            plt.legend(['Transition','Domain Formation', 'End of Quench',f'{10**b:.2f} * (t-tau)^{m:.4f}, R^2={r2:.4f}'])
             plt.show()
-    plt.scatter( quenchTimes,  transitionTimes  )
-    b,m = corr.bestFitLine( np.log10(quenchTimes), np.log10(transitionTimes) )
-    plt.plot( quenchTimes, 10**b * quenchTimes**m )
+            plt.cla()
+
+    # The first 3 data points do not follow the KZM scaling laws due to the quench being too fast
+    plt.scatter( quenchTimes[151:],  transitionTimes[151:]  )
+    b,m = corr.bestFitLine( np.log10(quenchTimes[151:]), np.log10(transitionTimes[151:]) )
+    r2 = corr.r2( np.log10(quenchTimes[151:]), np.log10(transitionTimes[151:]) )
+    plt.plot( quenchTimes[151:], 10**b * quenchTimes[151:]**m )
     plt.title('Freezing time vs tau_Q')
     plt.xlabel('tau_Q') 
     plt.ylabel('Freezing time')
-    plt.legend(['data',f'{10**b:.2f} * tau^{m:.4f}'])
+    plt.legend(['data',f'{10**b:.2f} * tau^{m:.4f}, R^2={r2:.4f}'])
     plt.show()
             
     # with h5py.File( './data/kzm_2d_t_instant.hdf5' ) as file:
