@@ -83,14 +83,15 @@ def _interaction_step(wfn: SpinOneWavefunction, pm: dict) -> None:
         spin_perp / cp.sqrt(2) * wfn.zero_component - spin_z * wfn.minus_component
     )
 
+    #qSpace is for if we want a spatially dependent q DO NOT USE WITH NORMAL Q
     wfn.plus_component = plus_comp_temp * cp.exp(
-        -1j * pm["dt"] * (pm["trap"] - pm["p"] + pm["c0"] * dens)
+        -1j * pm["dt"] * (pm["trap"] + pm["qSpace"] - pm["p"] + pm["c0"] * dens)
     )
     wfn.zero_component = zero_comp_temp * cp.exp(
         -1j * pm["dt"] * (pm["trap"] + pm["c0"] * dens)
     )
     wfn.minus_component = minus_comp_temp * cp.exp(
-        -1j * pm["dt"] * (pm["trap"] + pm["p"] + pm["c0"] * dens)
+        -1j * pm["dt"] * (pm["trap"] + pm["qSpace"] + pm["p"] + pm["c0"] * dens)
     )
 
 
@@ -126,12 +127,15 @@ def _calculate_density(wfn: SpinOneWavefunction) -> cp.ndarray:
 
 def _renormalise_wavefunction(wfn: SpinOneWavefunction) -> None:
     """Re-normalises the wavefunction to the correct atom number.
+    Needs to keep magnetisation constant
 
     :param wfn: The wavefunction of the system.
     """
     wfn.ifft()
     correct_atom_num = wfn.atom_num_plus + wfn.atom_num_zero + wfn.atom_num_minus
+    correct_mag_num = wfn.atom_num_minus - wfn.atom_num_minus
     current_atom_num = _calculate_atom_num(wfn)
+    current_mag_num = 
     wfn.plus_component *= cp.sqrt(correct_atom_num / current_atom_num)
     wfn.zero_component *= cp.sqrt(correct_atom_num / current_atom_num)
     wfn.minus_component *= cp.sqrt(correct_atom_num / current_atom_num)
@@ -155,3 +159,18 @@ def _calculate_atom_num(wfn: SpinOneWavefunction) -> float:
     )
 
     return atom_num_plus + atom_num_zero + atom_num_minus
+
+def _calculate_mag_num(wfn: SpinOneWavefunction) -> float:
+    """Calculates the total atom number of the system.
+
+    :param wfn: The wavefunction of the system.
+    :return: The total atom number.
+    """
+    atom_num_plus = wfn.grid.grid_spacing_product * cp.sum(
+        cp.abs(wfn.plus_component) ** 2
+    )
+    atom_num_minus = wfn.grid.grid_spacing_product * cp.sum(
+        cp.abs(wfn.minus_component) ** 2
+    )
+
+    return atom_num_plus - atom_num_minus

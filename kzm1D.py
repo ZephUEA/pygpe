@@ -117,9 +117,16 @@ def getData( psi:gpe.SpinOneWavefunction, params:dict, fileName:str, dataPath:st
             if params["t"] >= params["tau_q"] * 5:
                 params["dq"] = 0
 
+def correlatorFM( psi:dict, scalars:dict ) -> cp.ndarray:
+    nx = scalars["nx"]
+    plusComp = cp.array( psi['psi_plus'][()] )
+    minusComp = cp.array( psi['psi_minus'][()] )
+    magnetisation = abs( plusComp ) ** 2 - abs( minusComp ) ** 2
+    magFFT = cp.fft.fft2( magnetisation, axes=(0,) )
+    autoCorrelation = cp.fft.ifft2( abs( magFFT ) ** 2, axes=(0,) ).real
+    return autoCorrelation / ( nx )
 
-
-def chartCorrelator( psi, scalars, fileName, scale = False ) -> None:
+def chartCorrelator( psi, scalars, scale = False ) -> None:
     zeroTime = 0 # int( scalars["tau_q"] / ( scalars["dt"] * scalars['frameRate'] ) )
     freezingTime = 10 #int( cp.sqrt( scalars["tau_q"] ) )
     correlation = corr.correlatorFM( psi, scalars )
@@ -233,8 +240,8 @@ def main( recalculate:bool=False ):
     # tau_q = int( os.environ.get('SLURM_ARRAY_TASK_ID') ) ** 2
     tau_q = 1600
     # Generate grid object
-    points = (512,512)
-    grid_spacings = (0.5,0.5)
+    points = 4096
+    grid_spacings = 0.5
     grid = gpe.Grid(points, grid_spacings)
 
 
@@ -270,7 +277,7 @@ def main( recalculate:bool=False ):
     # filePath = f"./{targetDirectory}/" + fileName
 
     targetDirectory = "data"
-    fileName = 'kzm_2d_t_1600.hdf5'
+    fileName = 'kzm_1d_t_1600.hdf5'
     filePath = './data/' + fileName
 
     if not os.path.exists( filePath ) or recalculate:
@@ -299,228 +306,26 @@ def main( recalculate:bool=False ):
 if __name__ == "__main__":
     # main()
 
-    
-    file1 = h5py.File( './data/kzm_2d_t_400.hdf5', 'r')
-    file2 = h5py.File( './data/kzm_2d_t_900.hdf5', 'r')
-    file3 = h5py.File( './data/kzm_2d_t_1600.hdf5', 'r')
-    file4 = h5py.File( './data/kzm_2d_t_2500.hdf5', 'r')
-    
-
-    waveFunc400 = file1['wavefunction']
-    waveFunc900 = file2['wavefunction']
-    waveFunc1600 = file3['wavefunction']
-    waveFunc2500 = file4['wavefunction']
-
-    scalars = hdf5ReadScalars( file1 )
-    
-    # xs = cp.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
-    # ys = cp.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
-
-    # xMesh, yMesh = cp.meshgrid( xs, ys, indexing='ij' )
-
-    # # We want frames with index 0, 61, 305 and 599 for both the above wavefunctions
-    # fig, axs = plt.subplots(nrows=2,ncols=3, figsize=(10,9))
-    # for position, frame in enumerate( [61,305,599] ):
-    #     mag = axs[0][position].pcolormesh(
-    #             handle_array( xMesh ),
-    #             handle_array( yMesh ),
-    #             handle_array( abs( waveFunc400["psi_plus"][ :, :, frame ] ) ** 2 - abs( waveFunc400["psi_minus"][ :, :, frame ] ) ** 2 ), 
-    #             vmin=-1, vmax=1 )
-    #     axs[0][position].set_aspect('equal')
-    #     mag = axs[1][position].pcolormesh(
-    #             handle_array( xMesh ),
-    #             handle_array( yMesh ),
-    #             handle_array( abs( waveFunc2500["psi_plus"][ :, :, frame ] ) ** 2 - abs( waveFunc2500["psi_minus"][ :, :, frame ] ) ** 2 ), 
-    #             vmin=-1, vmax=1 )
-    #     axs[1][position].set_aspect('equal')
-        
-    # for position in range(3):
-    #     axs[0][position].axes.get_yaxis().set_visible(False)
-    #     axs[0][position].axes.get_xaxis().set_visible(False)
-    #     axs[1][position].axes.get_yaxis().set_visible(False)
-    #     axs[1][position].axes.get_xaxis().set_visible(False)
-    
-    # labels = ['a)','b)','c)','d)','e)','f)']
-    # for index, ax in enumerate(axs.flat):
-    #     ax.annotate(labels[index], xy=(0, 1), xytext=(-20, 10), 
-    #             xycoords='axes fraction', textcoords='offset points',
-    #             fontsize=16, fontweight='bold', ha='left', va='bottom')
-    # plt.tight_layout()
-    # fig.subplots_adjust(bottom=0.2)
-    # cbar_ax = fig.add_axes([0.15, 0.1, 0.7, 0.05])
-    # fig.colorbar(mag, cax=cbar_ax, orientation='horizontal')
-    # # plt.show()
-    # plt.savefig( './transitionPictures.png' )
-    # plt.cla()
+    file = h5py.File('./data/kzm_1d_t_1600.hdf5', 'r')
+    waveFunc = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
 
 
+    fig, ax = plt.subplots( figsize=(12, 12) )
+    xs = cp.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ts = cp.arange( 0,scalars['nt'] // scalars['frameRate'] )
 
-    # mpl.rcdefaults()  # Reset all rcParams to default
-    # plt.style.use('default')  # Use default style
-    # plt.rcParams['axes.grid'] = False
-    # fig, axs = plt.subplots( nrows=3, ncols=2, figsize=(12, 18) )
-    # for index, threshold in enumerate( [0.6,0.7,0.75] ):
-    #     x, y = countDomains( waveFunc400, scalars, 61, threshold=threshold, takePicture=True )
-    #     print( f'{threshold}: {countDomains(waveFunc400, scalars, 61, threshold=threshold)}')
-        
-    #     axs[index][0].set_facecolor('blue')
-    #     # Plot the points
-    #     axs[index][0].scatter( x, y, c='white', s=1, marker='.')
+    xMesh, tMesh = cp.meshgrid( xs, ts, indexing='ij' )
 
-    #     # Set aspect ratio to be equal
-    #     axs[index][0].set_aspect('equal')
-    #     axs[index][0].set_xlim(min(x), max(x))
-    #     axs[index][0].set_ylim(min(y), max(y))
-    #     axs[index][0].grid(False)
-    #     axs[index][0].axes.get_yaxis().set_visible(False)
-    #     axs[index][0].axes.get_xaxis().set_visible(False)
+    magnetisation = ax.pcolormesh(
+                handle_array( xMesh ),
+                handle_array( tMesh ),
+                handle_array( abs( waveFunc["psi_plus"][ :, : ] ) ** 2 - abs( waveFunc["psi_minus"][ :, : ] ) ** 2 ), 
+                vmin=-1, vmax=1 )
+    fig.colorbar( magnetisation )
+    plt.show()
 
-    #     x, y = countDomains( waveFunc400, scalars, 305, threshold=threshold, takePicture=True )
-    #     print( f'{threshold}: {countDomains(waveFunc400, scalars, 305, threshold=threshold)}')
-    #     axs[index][1].set_facecolor('blue')
-    #     # Plot the points
-    #     axs[index][1].scatter(x, y, c='white', s=1, marker='.')
-    #     # Set aspect ratio to be equal
-    #     axs[index][1].set_aspect('equal')
-    #     axs[index][1].set_xlim(min(x), max(x))
-    #     axs[index][1].set_ylim(min(y), max(y))
-    #     axs[index][1].grid(False)
-    #     axs[index][1].axes.get_yaxis().set_visible(False)
-    #     axs[index][1].axes.get_xaxis().set_visible(False)
-
-    # labels = ['a)','b)','c)','d)','e)','f)']
-    # for index, ax in enumerate(axs.flat):
-    #     ax.annotate(labels[index], xy=(0, 1), xytext=(-20, 10), 
-    #             xycoords='axes fraction', textcoords='offset points',
-    #             fontsize=16, fontweight='bold', ha='left', va='bottom')
-
-    # plt.tight_layout()
-    # # plt.show()
-    # # plt.savefig(f'./pointAlgorithm.png' )
-    # plt.savefig('./pointAlgorithm.png', facecolor='white', edgecolor='none', 
-    #         bbox_inches='tight', dpi=300)
-
-
-    mpl.rcdefaults()  # Reset all rcParams to default
-    plt.style.use('default')  # Use default style
-    plt.rcParams['axes.grid'] = False
-    fig, axs = plt.subplots( nrows=2, ncols=2, figsize=(8, 8) )
-    threshold = 0.7
-    
-    x, y = countDomains( waveFunc400, scalars, 61, threshold=threshold, takePicture=True )
-    print( f'{threshold}: {countDomains(waveFunc400, scalars, 61, threshold=threshold)}')
-    
-    axs[0][0].set_facecolor('blue')
-    # Plot the points
-    axs[0][0].scatter( x, y, c='white', s=1, marker='.')
-
-    # Set aspect ratio to be equal
-    axs[0][0].set_aspect('equal')
-    axs[0][0].set_xlim(min(x), max(x))
-    axs[0][0].set_ylim(min(y), max(y))
-    axs[0][0].grid(False)
-    axs[0][0].axes.get_yaxis().set_visible(False)
-    axs[0][0].axes.get_xaxis().set_visible(False)
-
-    x, y = countDomains( waveFunc400, scalars, 65, threshold=threshold, takePicture=True )
-    print( f'{threshold}: {countDomains(waveFunc400, scalars, 65, threshold=threshold)}')
-    axs[0][1].set_facecolor('blue')
-    # Plot the points
-    axs[0][1].scatter(x, y, c='white', s=1, marker='.')
-    # Set aspect ratio to be equal
-    axs[0][1].set_aspect('equal')
-    axs[0][1].set_xlim(min(x), max(x))
-    axs[0][1].set_ylim(min(y), max(y))
-    axs[0][1].grid(False)
-    axs[0][1].axes.get_yaxis().set_visible(False)
-    axs[0][1].axes.get_xaxis().set_visible(False)
-
-    x, y = countDomains( waveFunc400, scalars, 140, threshold=threshold, takePicture=True )
-    print( f'{threshold}: {countDomains(waveFunc400, scalars, 140, threshold=threshold)}')
-    axs[1][0].set_facecolor('blue')
-    # Plot the points
-    axs[1][0].scatter(x, y, c='white', s=1, marker='.')
-    # Set aspect ratio to be equal
-    axs[1][0].set_aspect('equal')
-    axs[1][0].set_xlim(min(x), max(x))
-    axs[1][0].set_ylim(min(y), max(y))
-    axs[1][0].grid(False)
-    axs[1][0].axes.get_yaxis().set_visible(False)
-    axs[1][0].axes.get_xaxis().set_visible(False)
-
-    x, y = countDomains( waveFunc400, scalars, 305, threshold=threshold, takePicture=True )
-    print( f'{threshold}: {countDomains(waveFunc400, scalars, 305, threshold=threshold)}')
-    axs[1][1].set_facecolor('blue')
-    # Plot the points
-    axs[1][1].scatter(x, y, c='white', s=1, marker='.')
-    # Set aspect ratio to be equal
-    axs[1][1].set_aspect('equal')
-    axs[1][1].set_xlim(min(x), max(x))
-    axs[1][1].set_ylim(min(y), max(y))
-    axs[1][1].grid(False)
-    axs[1][1].axes.get_yaxis().set_visible(False)
-    axs[1][1].axes.get_xaxis().set_visible(False)
-
-    labels = ['a)','b)','c)','d)']
-    for index, ax in enumerate(axs.flat):
-        ax.annotate(labels[index], xy=(0, 1), xytext=(-20, 10), 
-                xycoords='axes fraction', textcoords='offset points',
-                fontsize=16, fontweight='bold', ha='left', va='bottom')
-
-    plt.tight_layout()
-    # plt.show()
-    # plt.savefig(f'./pointAlgorithm.png' )
-    plt.savefig('./pointAlgorithmOverTime.png', facecolor='white', edgecolor='none', 
-            bbox_inches='tight', dpi=300)
-
-    # fig, ax = plt.subplots()
-    # area = scalars['nx'] * scalars['ny']
-
-    # densities1 = corr.componentDensity( waveFunc400, 'psi_zero' )  / area  
-    # times1 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/400 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times1[:100], densities1[:100] )
-
-    # densities2 = corr.componentDensity( waveFunc900, 'psi_zero' )  / area  
-    # times2 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/900 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times2[:200], densities2[:200] )
-
-    # densities3 = corr.componentDensity( waveFunc1600, 'psi_zero' )  / area  
-    # times3 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/1600 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times3[:300], densities3[:300] )
-
-    # densities4 = corr.componentDensity( waveFunc2500, 'psi_zero' ) / area   
-    # times4 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/2500 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times4[:500], densities4[:500] )
-
-    # plt.xlabel( r'$t/\tau_Q$' )
-    # plt.ylabel( r'$N_0$' )
-    # plt.legend([r'$\tau_q=400$',r'$\tau_q=900$',r'$\tau_q=1600$',r'$\tau_q=2500$'], loc='lower left')
-
-    # sub_ax = inset_axes(
-    # parent_axes=ax,
-    # width="40%",
-    # height="30%",
-    # borderpad=1
-    # )
-
-    # densities1 = corr.componentDensity( waveFunc400, 'psi_plus' )  / area  
-    # times1 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/400 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times1[:100], densities1[:100] )
-
-    # densities2 = corr.componentDensity( waveFunc900, 'psi_plus' )  / area  
-    # times2 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/900 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times2[:200], densities2[:200] )
-
-    # densities3 = corr.componentDensity( waveFunc1600, 'psi_plus' )  / area  
-    # times3 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/1600 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times3[:300], densities3[:300] )
-
-    # densities4 = corr.componentDensity( waveFunc2500, 'psi_plus' ) / area   
-    # times4 = cp.linspace( -1, (scalars['nt'] * scalars['dt'] )/2500 - 1, scalars['nt']//scalars['frameRate'] )
-    # plt.plot( times4[:500], densities4[:500] )
-    
-    # plt.yticks([0.2,0.5])
-    # plt.xlabel( r'$t/\tau_Q$' )
-    # plt.ylabel( r'$N_1$' )
-    # plt.show()
-    # plt.savefig('./paperCharts/zeroCompDensity.png')
+    # We want the correlator fucntion
+    correlator = correlatorFM( waveFunc, scalars )
+    plt.plot( cp.linspace(0,1,correlator.shape[0]//2), correlator[:correlator.shape[0]//2,-1])
+    plt.show()

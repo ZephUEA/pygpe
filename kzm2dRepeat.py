@@ -47,6 +47,7 @@ def countRegions( waveFunc, scalars, orderFunc) -> int:
     return count
 
 def correlatorFM( psi:gpe.SpinOneWavefunction, scalars:dict ) -> cp.ndarray:
+    # This is an integral for calculating the product of magnetisation over a given domain
     nx = scalars["nx"]
     ny = scalars["ny"]
     plusComp = cp.array( psi.plus_component )
@@ -68,13 +69,12 @@ def countDomains( psi, scalars ):
 
     return countRegions( psi, scalars, magnetisation )
 
-def getData( psi, params:dict, circles:cp.ndarray, threshold:int=6 ) -> tuple:
-
+def getData( psi, params:dict, circles:cp.ndarray, stepsize:int, threshold:int=30 ) -> tuple:
+    
     domains = []
     times = []
     flag = False
-    size = min( params['nx'],params['ny'])//2
-    xs = cp.linspace( 0, size * params['dx'], size )
+    xs = cp.linspace( 0, stepsize * circles.shape[2] * params['dx'], circles.shape[2] + 1 )[:-1]
     correlations = []
     for step in range(params["nt"]):
 
@@ -85,7 +85,7 @@ def getData( psi, params:dict, circles:cp.ndarray, threshold:int=6 ) -> tuple:
         
         if params["dq"] < 0:
             params["q"] = ( params["Q_0"] - ( params["t"].real / params["tau_q"] ) ) * abs( params["c2"] ) * params["n0"]
-            if params["t"] >= params["tau_q"] * ( int( params['Q_0'] * 2 ) + 1 ): #This is to stop at q=-0.5 
+            if params["t"] >= params["tau_q"] * ( int( params['Q_0'] ) + 2 ): #This is to stop at q=-1.0 
                 params["dq"] = 0
 
         if step % params["frameRate"] == 0:       
@@ -105,21 +105,24 @@ def getData( psi, params:dict, circles:cp.ndarray, threshold:int=6 ) -> tuple:
 
 
 def main():
-	
-    tau_q = int( os.environ.get('SLURM_ARRAY_TASK_ID') ) ** 2
-    #tau_q = 0
+    try:
+        name = str( os.environ.get( 'SLURM_ARRAY_JOB_ID' ) )
+        tau_q = int( os.environ.get( 'SLURM_ARRAY_TASK_ID' ) ) ** 2
+    except:
+        tau_q = 100
+    stepsize = 1
     # Generate grid object
     nx = 2048
     ny = 2048
     points = (nx,ny)
     grid_spacings = (0.5,0.5)
     grid = gpe.Grid(points, grid_spacings)
-    circles = corr.createCircles( ( nx, ny ) )
+    circles = corr.createCircles( ( nx, ny ), stepsize=stepsize, threshold=256 )
     # Condensate parameters
    
     for i in range( 10 ):
         params = {
-            "c0": 4.34, # 4.34 for Li7 and 432 for Rb87
+            "c0": 1.085, # 1.085 for Li7 and 108 for Rb87
             "c2": -0.5,
             "p": 0,
             "q": 0.5,
@@ -148,11 +151,11 @@ def main():
 
         psi.fft()  # Ensures k-space wavefunction components are up-to-date before evolution
         start_time = time.time()
-        results = getData( psi, params, circles )
+        results = getData( psi, params, circles, stepsize )
         print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
         with h5py.File( f'./../scratch/baLiDomains{tau_q}.hdf5', 'a' ) as file:
-            grp = file.create_group( f'run{i}' )
+            grp = file.create_group( f'run{ name }_{i}' )
             grp.create_dataset( 'Times',data=handle_array( results[0] ) )
             grp.create_dataset( 'Domains', data=handle_array( results[1] ) )
             grp.create_dataset( 'Radii', data=handle_array( results[2] ) )

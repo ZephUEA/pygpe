@@ -7,7 +7,7 @@ except ImportError:
 def _check_valid_tuple(points: tuple, grid_spacings: tuple) -> None:
     if len(points) != len(grid_spacings):
         raise ValueError(f"{points} and {grid_spacings} are not of same length")
-    if len(points) > 3:
+    if len(points) > 4:
         raise ValueError(f"{points} is not a valid dimensionality")
     for point in points:
         if not isinstance(point, int):
@@ -86,6 +86,8 @@ class Grid:
             self._generate_2d_grids(points, grid_spacings)
         elif self.ndim == 3:
             self._generate_3d_grids(points, grid_spacings)
+        elif self.ndim == 4:
+            self._generate_4d_grids(points, grid_spacings)
 
     def _generate_1d_grids(self, points: int, grid_spacing: float):
         """Generates meshgrid for a 1D grid."""
@@ -211,3 +213,85 @@ class Grid:
         self.wave_number = (
             self.fourier_x_mesh**2 + self.fourier_y_mesh**2 + self.fourier_z_mesh**2
         )
+
+    def _generate_4d_grids(
+        self, 
+        points: tuple[int, ...], 
+        grid_spacings: tuple[float, ...]
+    ):
+        """Generates meshgrid for a 4D grid."""
+        self.num_points_x, self.num_points_y, self.num_points_z, self.num_points_w = points
+        (
+            self.grid_spacing_x,
+            self.grid_spacing_y,
+            self.grid_spacing_z,
+            self.grid_spacing_w
+        ) = grid_spacings
+        self.grid_spacing_product = (
+            self.grid_spacing_x * self.grid_spacing_y * self.grid_spacing_z * self.grid_spacing_w
+        )
+
+        self.length_x = self.num_points_x * self.grid_spacing_x
+        self.length_y = self.num_points_y * self.grid_spacing_y
+        self.length_z = self.num_points_z * self.grid_spacing_z
+        self.length_w = self.num_points_w * self.grid_spacing_w
+
+        x = (
+            cp.arange(-self.num_points_x // 2, self.num_points_x // 2)
+            * self.grid_spacing_x
+        )
+        y = (
+            cp.arange(-self.num_points_y // 2, self.num_points_y // 2)
+            * self.grid_spacing_y
+        )
+        z = (
+            cp.arange(-self.num_points_z // 2, self.num_points_z // 2)
+            * self.grid_spacing_z
+        )
+
+        w = (
+            cp.arange(-self.num_points_w // 2, self.num_points_w // 2)
+            * self.grid_spacing_w
+        )
+        self.x_mesh, self.y_mesh, self.z_mesh, self.w_mesh = cp.meshgrid(x, y, z, w, indexing="ij")
+
+        # Generate Fourier space variables
+        self.fourier_spacing_x = cp.pi / (self.num_points_x // 2 * self.grid_spacing_x)
+        self.fourier_spacing_y = cp.pi / (self.num_points_y // 2 * self.grid_spacing_y)
+        self.fourier_spacing_z = cp.pi / (self.num_points_z // 2 * self.grid_spacing_z)
+        self.fourier_spacing_w = cp.pi / (self.num_points_w // 2 * self.grid_spacing_w)
+
+        fourier_x = (
+            cp.arange(-self.num_points_x // 2, self.num_points_x // 2)
+            * self.fourier_spacing_x
+        )
+        fourier_y = (
+            cp.arange(-self.num_points_y // 2, self.num_points_y // 2)
+            * self.fourier_spacing_y
+        )
+        fourier_z = (
+            cp.arange(-self.num_points_z // 2, self.num_points_z // 2)
+            * self.fourier_spacing_z
+        )
+        fourier_w = (
+            cp.arange(-self.num_points_w // 2, self.num_points_w // 2)
+            * self.fourier_spacing_w
+        )
+
+        (
+            self.fourier_x_mesh,
+            self.fourier_y_mesh,
+            self.fourier_z_mesh,
+            self.fourier_w_mesh,
+        ) = cp.meshgrid(fourier_x, fourier_y, fourier_z, fourier_w, indexing="ij")
+        self.fourier_x_mesh = cp.fft.fftshift(self.fourier_x_mesh)
+        self.fourier_y_mesh = cp.fft.fftshift(self.fourier_y_mesh)
+        self.fourier_z_mesh = cp.fft.fftshift(self.fourier_z_mesh)
+        self.fourier_w_mesh = cp.fft.fftshift(self.fourier_w_mesh)
+
+        self.wave_number = (
+            self.fourier_x_mesh**2 + self.fourier_y_mesh**2 + self.fourier_z_mesh**2 + self.fourier_w_mesh**2
+        )
+
+        
+

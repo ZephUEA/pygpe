@@ -93,15 +93,30 @@ class SpinTwoWavefunction(_Wavefunction):
         :param minus2_component: Minus two component of the wavefunction.
         """
         if plus2_component is not None:
-            self.plus2_component = plus2_component
+            if isinstance( plus2_component, cp.ndarray):
+                self.plus2_component = cp.array(plus2_component,dtype='complex128')
+            else:
+                self.plus2_component = plus2_component * cp.ones( self.grid.shape, dtype='complex128' )
         if plus1_component is not None:
-            self.plus1_component = plus1_component
+            if isinstance( plus1_component, cp.ndarray):
+                self.plus1_component = cp.array(plus1_component,dtype='complex128')
+            else:
+                self.plus1_component = plus1_component * cp.ones( self.grid.shape, dtype='complex128' )
         if zero_component is not None:
-            self.zero_component = zero_component
+            if isinstance( zero_component, cp.ndarray):
+                self.zero_component = cp.array(zero_component,dtype='complex128')
+            else:
+                self.zero_component = zero_component * cp.ones( self.grid.shape, dtype='complex128' )
         if minus1_component is not None:
-            self.minus1_component = minus1_component
+            if isinstance( minus1_component, cp.ndarray):
+                self.minus1_component = cp.array(minus1_component,dtype='complex128')
+            else:
+                self.minus1_component = minus1_component * cp.ones( self.grid.shape, dtype='complex128' )
         if minus2_component is not None:
-            self.minus2_component = minus2_component
+            if isinstance( minus2_component, cp.ndarray):
+                self.minus2_component = cp.array(minus2_component,dtype='complex128')
+            else:
+                self.minus2_component = minus2_component * cp.ones( self.grid.shape, dtype='complex128' )
 
         self._update_atom_numbers()
 

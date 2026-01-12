@@ -74,11 +74,20 @@ class SpinOneWavefunction(_Wavefunction):
         :param minus_component: Minus component of the wavefunction.
         """
         if plus_component is not None:
-            self.plus_component = plus_component
+            if isinstance( plus_component, cp.ndarray):
+                self.plus_component = cp.array(plus_component,dtype='complex128')
+            else:
+                self.plus_component = plus_component * cp.ones( self.grid.shape, dtype='complex128' )
         if zero_component is not None:
-            self.zero_component = zero_component
+            if isinstance( zero_component, cp.ndarray):
+                self.zero_component = cp.array(zero_component,dtype='complex128')
+            else:
+                self.zero_component = zero_component * cp.ones( self.grid.shape, dtype='complex128' )
         if minus_component is not None:
-            self.minus_component = minus_component
+            if isinstance( minus_component, cp.ndarray):
+                self.minus_component = cp.array(minus_component,dtype='complex128')
+            else:
+                self.minus_component = minus_component * cp.ones( self.grid.shape, dtype='complex128' )
 
         self._update_atom_numbers()
 

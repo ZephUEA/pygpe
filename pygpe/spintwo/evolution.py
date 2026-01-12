@@ -4,6 +4,10 @@ except ImportError:
     import numpy as cp
 from pygpe.spintwo.wavefunction import SpinTwoWavefunction
 
+pauliX = cp.array([[0,1,0,0,0],[1,0,cp.sqrt(3/2),0,0],[0,cp.sqrt(3/2),0,cp.sqrt(3/2),0],[0,0,cp.sqrt(3/2),0,1],[0,0,0,1,0]], dtype='complex128')
+pauliY = 1j * cp.array([[0,-1,0,0,0],[1,0,-cp.sqrt(3/2),0,0],[0,cp.sqrt(3/2),0,-cp.sqrt(3/2),0],[0,0,cp.sqrt(3/2),0,-1],[0,0,0,1,0]], dtype='complex128')
+pauliZ = cp.array([[2,0,0,0,0],[0,1,0,0,0],[0,0,0,0,0],[0,0,0,-1,0],[0,0,0,0,-2]], dtype='complex128')
+paulis = [pauliX,pauliY,pauliZ]
 
 def step_wavefunction(wfn: SpinTwoWavefunction, params: dict) -> None:
     """Propagates the wavefunction forward one time step.
@@ -28,43 +32,59 @@ def _kinetic_step(wfn: SpinTwoWavefunction, pm: dict) -> None:
     :param wfn: The wavefunction of the system.
     :param pm:  The parameters' dictionary.
     """
-    wfn.fourier_plus2_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
-    wfn.fourier_plus1_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
+    wfn.fourier_plus2_component *= cp.exp(-0.25 * 1j * pm["dt"] * (wfn.grid.wave_number+8*pm['q']))
+    wfn.fourier_plus1_component *= cp.exp(-0.25 * 1j * pm["dt"] * (wfn.grid.wave_number+2*pm['q']))
     wfn.fourier_zero_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
-    wfn.fourier_minus1_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
-    wfn.fourier_minus2_component *= cp.exp(-0.25 * 1j * pm["dt"] * wfn.grid.wave_number)
+    wfn.fourier_minus1_component *= cp.exp(-0.25 * 1j * pm["dt"] * (wfn.grid.wave_number+2*pm['q']))
+    wfn.fourier_minus2_component *= cp.exp(-0.25 * 1j * pm["dt"] * (wfn.grid.wave_number+8*pm['q']))
 
 
 def _interaction_step(wfn: SpinTwoWavefunction, pm: dict) -> None:
+    wfnArray = cp.array([wfn.plus2_component,wfn.plus1_component,wfn.zero_component,wfn.minus1_component,wfn.minus2_component])
     # Calculate density and singlets
     n = _density(wfn)
     a20 = _singlet_duo(wfn)
+    # fx, fy, fz = _calculate_spin_vectors(wfnArray)
 
     # Perform singlet step
+    # temp_wfn = wfnArray
     temp_wfn = _evolve_spin_singlet(wfn, n, a20, pm)
 
     # Calculate spin
-    fp, fz = _calculate_spin_vectors(temp_wfn)
-    mod_f = cp.sqrt(fz**2 + abs(fp) ** 2)
-
+    
+    fz = 2 * ( abs(wfnArray[0])**2 - abs(wfnArray[4])**2 ) + abs(wfnArray[1])**2 - abs(wfnArray[3])**2
+    fp =  2*( cp.conj(wfnArray[1])*wfnArray[0]  + cp.conj(wfnArray[4])*wfnArray[3] ) + cp.sqrt(6) * ( cp.conj(wfnArray[2])*wfnArray[1] + cp.conj(wfnArray[3])*wfnArray[2] )
+    mod_f = cp.sqrt( fz**2 + abs(fp)**2 )
     # Evolve spin term c2 * F^2
-    qfactor, q2factor, q3factor, q4factor = _calc_q_factors(mod_f, pm)
 
-    fzq = cp.nan_to_num(fz / mod_f)
-    fpq = cp.nan_to_num(fp / mod_f)
+    q1factor, q2factor, q3factor, q4factor = _calc_q_factors(mod_f, pm)
 
-    qpsi = _calc_qpsi(fzq, fpq, temp_wfn)
-    q2psi = _calc_qpsi(fzq, fpq, qpsi)
-    q3psi = _calc_qpsi(fzq, fpq, q2psi)
-    q4psi = _calc_qpsi(fzq, fpq, q3psi)
+    # fDotF = pauliX[...,None,None] * normalFs[0] + pauliY[...,None,None] * normalFs[1] + pauliZ[...,None,None] * normalFs[2]
+    # fDotF2 = cp.einsum('ij...,jk...->ik...', fDotF, fDotF)
+    # fDotF3 = cp.einsum('ij...,jk...->ik...', fDotF2, fDotF)
+    # fDotF4 = cp.einsum('ij...,jk...->ik...', fDotF3, fDotF)
+
+    # spinTerm = cp.identity(5)[...,None,None] + fDotF*q1factor + fDotF2*q2factor + fDotF3*q3factor + fDotF4*q4factor
+    # temp_wfn = cp.einsum( 'ij...,j...->i...', spinTerm, temp_wfn )
+
+    fzNorm = cp.nan_to_num(fz / mod_f)
+    fPerpNorm = cp.nan_to_num(fp / mod_f)
+
+    qpsi = _calc_qpsi(fzNorm, fPerpNorm, temp_wfn)
+    q2psi = _calc_qpsi(fzNorm, fPerpNorm, qpsi)
+    q3psi = _calc_qpsi(fzNorm, fPerpNorm, q2psi)
+    q4psi = _calc_qpsi(fzNorm, fPerpNorm, q3psi)
 
     for ii in range(len(temp_wfn)):
         temp_wfn[ii] += (
-            qfactor * qpsi[ii]
+            q1factor * qpsi[ii]
             + q2factor * q2psi[ii]
             + q3factor * q3psi[ii]
             + q4factor * q4psi[ii]
         )
+
+
+
 
     # Evolve (c0+c4)*n + (V + pm + qm^2):
     for ii in range(len(temp_wfn)):
@@ -73,10 +93,9 @@ def _interaction_step(wfn: SpinTwoWavefunction, pm: dict) -> None:
             -1j
             * pm["dt"]
             * (
-                (pm["c0"] + pm["c4"]) * n
+                ( pm["c0"] + pm['c4']/5 ) * n
                 + pm["trap"]
                 - pm["p"] * m_f
-                + pm["q"] * m_f**2
             )
         )
 
@@ -99,23 +118,21 @@ def _density(wfn: SpinTwoWavefunction) -> cp.ndarray:
 
 
 def _singlet_duo(wfn: SpinTwoWavefunction) -> cp.ndarray:
+    # Missing a sqrt(5) since its wrapped into a redefinition of pm['c4']
+    # This parameter gets divided by 5 everytime it shows up due to this.
     return (
-        1
-        / cp.sqrt(5)
-        * (
             wfn.zero_component**2
             - 2 * wfn.plus1_component * wfn.minus1_component
             + 2 * wfn.plus2_component * wfn.minus2_component
-        )
     )
 
 
 def _evolve_spin_singlet(
     wfn: SpinTwoWavefunction, dens: cp.ndarray, singlet: cp.ndarray, pm: dict
 ) -> list[cp.ndarray]:
-    s = cp.nan_to_num(cp.sqrt(dens**2 - abs(singlet) ** 2))
-    cos_term = cp.cos(pm["c4"] * s * pm["dt"])
-    sin_term = cp.sin(pm["c4"] * s * pm["dt"]) / s
+    s = cp.nan_to_num( cp.sqrt(dens**2 - (abs(singlet) ** 2) ) )
+    cos_term = cp.cos(pm["c4"]/5 * s * pm["dt"])
+    sin_term = cp.sin(pm["c4"]/5 * s * pm["dt"]) / s
     sin_term[s == 0] = 0  # Corrects division by 0
 
     psi_p2 = (
@@ -152,12 +169,12 @@ def _evolve_spin_singlet(
     return [psi_p2, psi_p1, psi_0, psi_m1, psi_m2]
 
 
-def _calculate_spin_vectors(wfn: list[cp.ndarray]):
-    fp = cp.sqrt(6) * (wfn[1] * cp.conj(wfn[2]) + wfn[2] * cp.conj(wfn[3])) + 2 * (
-        wfn[3] * cp.conj(wfn[4]) + wfn[0] * cp.conj(wfn[1])
-    )
-    fz = 2 * (abs(wfn[0]) ** 2 - abs(wfn[4]) ** 2) + abs(wfn[1]) ** 2 - abs(wfn[3]) ** 2
-    return fp, fz
+def _calculate_spin_vectors(wfn: cp.ndarray):
+    conjWfn = cp.conj(wfn)
+    fx = cp.einsum('kij,kl,lij->ij',conjWfn,pauliX,wfn )
+    fy = cp.einsum('kij,kl,lij->ij',conjWfn,pauliY,wfn )
+    fz = 2 * ( abs(wfn[0])**2 - abs(wfn[4])**2 ) + abs(wfn[1])**2 - abs(wfn[3])**2
+    return fx, fy, fz
 
 
 def _calc_q_factors(mod_f: cp.ndarray, pm: dict):
@@ -176,6 +193,7 @@ def _calc_q_factors(mod_f: cp.ndarray, pm: dict):
 
 
 def _calc_qpsi(fz, fp, wfn):
+    # fp = fx - i fy
     qpsi = [
         2 * fz * wfn[0] + fp * wfn[1],
         cp.conj(fp) * wfn[0] + fz * wfn[1] + cp.sqrt(3 / 2) * fp * wfn[2],
