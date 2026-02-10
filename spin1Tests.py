@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pygpe.shared.vortices as vort
 import correlation as corr
-from scipy.ndimage import label
+from scipy.optimize import curve_fit
 # np.seterr(all='raise')
 
 def getData( psi:gpe.SpinOneWavefunction, params:dict, fileName:str, dataPath:str ) -> None:
@@ -20,6 +20,9 @@ def getData( psi:gpe.SpinOneWavefunction, params:dict, fileName:str, dataPath:st
         
         if i % percentages ==0 :
             print(f'{i//percentages}% ')
+            # print( f'MagZ = {np.sum(abs(psi.plus_component)**2 - abs(psi.minus_component)**2 )}')
+            # print( f'MagP = {np.sum( np.sqrt(2.0) * (np.conj(psi.plus_component) * psi.zero_component + 
+            #                                          np.conj(psi.zero_component) * psi.minus_component ) ) }')
         
 
         # Evolve wavefunction
@@ -467,16 +470,16 @@ def removePhaseDiscontinuity( phase ):
     return newPhase
 
 
-def skyrmionInitial( grid, coord1, coord2, radius ):
+def skyrmionInitial( grid, coord1, coord2, radius, winding=1 ):
     
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     r2 = np.sqrt( (grid.x_mesh-coord2[0])**2 + (grid.y_mesh-coord2[1])**2 )
     beta1 = np.pi * (np.tanh( r1/radius ))
     beta2 = np.pi * (np.tanh( r2/radius ))
 
-    plusComp =  ( ((np.cos(beta1/2))**2 + (np.cos(beta2/2))**2) ) / 2
-    zeroComp = ( np.sin(beta1) /np.sqrt(2) + np.sin(beta2) / np.sqrt(2) ) /2
-    minusComp = ((np.sin(beta1/2))**2  * (np.sin(beta2/2))**2 )
+    plusComp =  (np.cos(beta1/2))**2 + (np.cos(beta2/2))**2
+    zeroComp = np.sin(beta1) /np.sqrt(2) + np.sin(beta2) / np.sqrt(2)
+    minusComp = ( (np.sin(beta1/2))**2  * (np.sin(beta2/2))**2 )
 
     norm = np.sqrt( abs(plusComp)**2 + abs(zeroComp) **2 + abs(minusComp)**2 )
 
@@ -487,35 +490,35 @@ def skyrmionInitial( grid, coord1, coord2, radius ):
     psi = gpe.SpinOneWavefunction(grid)
     psi.set_wavefunction(plusComp,zeroComp,minusComp)
     phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
-    phase2 = vort._calculate_vortex_contribution(grid, coord2[0],coord2[1],1) 
+    phase2 = vort._calculate_vortex_contribution(grid, coord2[0],coord2[1], sgn(winding) ) 
     phaseTotal = phase1 + phase2
     # phaseTotal = removePhaseDiscontinuity( phaseTotal )
     psi.apply_phase( phaseTotal,['zero','minus'] )
     psi.apply_phase( phaseTotal, 'minus' )
     return psi
 
-def vortexPairInitial( grid, coord1, coord2 ):
+def vortexPairInitial( grid, coord1, coord2, winding=1 ):
     psi = gpe.SpinOneWavefunction( grid )
-    minusComp = np.ones( grid.x_mesh.shape )
-    zeroComp = np.zeros( grid.x_mesh.shape )
-    minusComp[ abs(grid.x_mesh-coord1[0])**2 + abs(grid.y_mesh-coord1[1]**2) <=1 ] = 0 
-    zeroComp[ abs(grid.x_mesh-coord1[0]) + abs(grid.y_mesh-coord1[1]**2) <=1 ] = 1
-    minusComp[ abs(grid.x_mesh-coord2[0]) + abs(grid.y_mesh-coord2[1]**2) <=1 ] = 0 
-    zeroComp[ abs(grid.x_mesh-coord2[0]) + abs(grid.y_mesh-coord2[1]**2) <=1 ] = 1
-
-    psi.set_wavefunction(minus_component=minusComp, zero_component=zeroComp)
+    psi.set_wavefunction(plus_component=1, zero_component=10**-2)
     phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
-    phase2 = vort._calculate_vortex_contribution(grid, coord2[0],coord2[1],-1)
+    phase2 = vort._calculate_vortex_contribution(grid, coord2[0],coord2[1],sgn(winding))
     phaseTotal = phase1 + phase2
-    # phaseTotal = removePhaseDiscontinuity( phaseTotal )
-    psi.apply_phase( phaseTotal, 'minus')
+    psi.apply_phase( phaseTotal, 'plus')
+    return psi
+
+def vortexInitial( grid, coord1 ):
+    psi = gpe.SpinOneWavefunction( grid )
+    psi.set_wavefunction(plus_component=1, zero_component=10**-2)
+    phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
+    phaseTotal = phase1
+    psi.apply_phase( phaseTotal, 'plus')
     return psi
 
 
 def singleSkyrmion(grid, coord1, radius):
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     beta1 = np.pi * (np.tanh( r1/radius ))
-    beta1 = np.pi * ( (np.sign(r1-radius/2)+1)/2 + (np.sign(r1-radius)+1)/2 )/2
+    # beta1 = np.pi * ( (np.sign(r1-radius/2)+1)/2 + (np.sign(r1-radius)+1)/2 )/2
 
     plusComp =  (np.cos(beta1/2))**2  
     zeroComp =  np.sin(beta1) /np.sqrt(2) 
@@ -545,13 +548,13 @@ def infinitePotential( grid, xWidth, yWidth ):
 
     return trap
 
-def circularInfinitePotential( grid, radius ):
+def circularInfinitePotential( grid, radius, magnitude ):
     x = grid.x_mesh
     y = grid.y_mesh
     r = np.sqrt(abs(x)**2 + abs(y)**2)
 
     trap = np.zeros(r.shape)
-    trap[abs(r)>radius] = 1e10
+    trap[abs(r)>radius] = magnitude
     return trap
 
 
@@ -613,93 +616,270 @@ def extractRadialProfile( psi, scalars, frame ):
     cosBeta = (abs(psiPlus)**2 - abs(psiMinus)**2)/(abs(psiPlus)**2 + abs(psiZero)**2 + abs(psiMinus)**2)
     beta = np.arccos( cosBeta )
     radialBeta = beta[:, beta.shape[1]//2]
-    m = corr.bestFitCurveError( lambda x, m: m*x , radius[halfXPoint:halfXPoint+15],radialBeta[halfXPoint:halfXPoint+15] )
-    p,a = corr.bestFitCurveError(lambda x, p, A: np.pi - A*np.exp(-p*x)/np.sqrt(x), radius[halfXPoint+10:-20], radialBeta[halfXPoint+10:-20] )
+    m = corr.bestFitCurveError( lambda x, m: m*x , radius[halfXPoint:halfXPoint+40],radialBeta[halfXPoint:halfXPoint+40] )
+    p,a = corr.bestFitCurveError(lambda x, p, A: np.pi - A*np.exp(-p*x)/np.sqrt(x), radius[halfXPoint+70:-20], radialBeta[halfXPoint+70:-20], bounds=([0, -np.inf], [0.5, np.inf])) 
     r = corr.bestFitCurveError( lambda x, r: np.pi * np.tanh(x/r) ,radius[halfXPoint:-20], radialBeta[halfXPoint:-20])
     plt.plot( radius, radialBeta )
-    plt.plot( radius[halfXPoint:halfXPoint+15], radius[halfXPoint:halfXPoint+15]*m[0][0])
-    plt.plot( radius[halfXPoint+10:-10], np.pi - a[0] * ( np.exp(-p[0] * radius[halfXPoint+10:-10] ) / np.sqrt(radius[halfXPoint+10:-10] ) ) )
+    plt.plot( radius[halfXPoint:halfXPoint+40], radius[halfXPoint:halfXPoint+40]*m[0][0])
+    plt.plot( radius[halfXPoint+70:-20], np.pi - a[0] * ( np.exp(-p[0] * radius[halfXPoint+70:-20] ) / np.sqrt(radius[halfXPoint+70:-20] ) ) )
     # plt.plot( radius[halfXPoint:-20], np.pi * np.tanh(radius[halfXPoint:-20]/r[0][0]) )
     plt.hlines( np.pi, radius[0],radius[-1], colors=['k'])
-    plt.legend(['Data',f'Linear Core {m[0][0]:.2f}r', fr'$\pi-{a[0]:.2f}exp(-{p[0]:.2f}r)/\sqrt{{r}}$', f'$\pi$'])
+    plt.legend(['Data',f'Linear Core {m[0][0]:.2f}r', fr'$\pi-{a[0]:.2f}exp(-{p[0]:.2f}r)/\sqrt{{r}}$', fr'$\pi$'])
     plt.show()
+
+def radialFrame( psi, scalars, frame, frames_dir ):
+    frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+
+    psiPlus = psi['psi_plus'][:,:,frame]
+    psiZero = psi['psi_zero'][:,:,frame]
+    psiMinus = psi['psi_minus'][:,:,frame]
+    halfXPoint = psiPlus.shape[0]//2
+
+    radius = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']
+
+    cosBeta = (abs(psiPlus)**2 - abs(psiMinus)**2)/(abs(psiPlus)**2 + abs(psiZero)**2 + abs(psiMinus)**2)
+    beta = np.arccos( cosBeta )
+    radialBeta = beta[:, beta.shape[1]//2]
+    plt.plot( radius, radialBeta )
+    plt.hlines( np.pi, radius[0],radius[-1], colors=['k'])
+    
+    plt.savefig(frame_path)
+
+    plt.close()
+
+def totalEnergyPlot( psi, scalars ):
+    energies = []
+    for frame in range( scalars['nt'] // scalars['frameRate'] ):
+        psiPlus = psi['psi_plus'][:,:,frame]
+        psiZero = psi['psi_zero'][:,:,frame]
+        psiMinus = psi['psi_minus'][:,:,frame]
+
+        gradPlusX, gradPlusY = np.gradient( psiPlus )
+        gradZeroX, gradZeroY = np.gradient( psiZero )
+        gradMinusX, gradMinusY = np.gradient( psiMinus )
+
+        gradEnergy = np.sum( np.conj( gradPlusX ) * gradPlusX + np.conj(gradPlusY) * gradPlusY + 
+                    np.conj( gradZeroX ) * gradZeroX + np.conj(gradZeroY) * gradZeroY + 
+                    np.conj( gradMinusX ) * gradMinusX + np.conj(gradMinusY) * gradMinusY )
+        
+        densEnergy = np.sum( ( abs(psiPlus)**2 + abs(psiZero)**2 + abs(psiMinus)**2 ) ** 2 )
+
+        magXEnergy = ( ( np.conj(psiPlus) + np.conj(psiMinus) ) * psiZero + np.conj(psiZero)*(psiPlus + psiMinus) )/ np.sqrt(2)
+        magYenergy = 1j * ( ( -np.conj(psiPlus) + np.conj(psiMinus) ) * psiZero + np.conj(psiZero)*(psiPlus - psiMinus)) / np.sqrt(2)
+        magZEnergy = abs(psiPlus)**2 - abs(psiMinus)**2
+
+        magEnergy = np.sum( abs(magXEnergy) ** 2 + abs(magYenergy) ** 2 + abs(magZEnergy) ** 2 )
+
+        energies.append( gradEnergy + scalars['c0'] * densEnergy + scalars['c2'] * magEnergy )
+
+    ts = np.linspace( 0, scalars['dt']*scalars['nt'], scalars['nt']//scalars['frameRate'] )
+    plt.plot( abs(ts), np.array(energies).real )
+    plt.show()
+
+
+def centerRegions( waveFunc, scalars, orderFunc, frame:int, threshold=0.7, takePicture=False ) -> int:
+    
+    def mask( coord, scalars ):
+        ( x, y ) = coord
+        nx = scalars["nx"]
+        ny = scalars["ny"]
+        return [((x-1) % nx,y),((x+1) % nx,y),(x,(y-1) % ny),(x,(y+1) % ny)]
+    
+
+    orderParam = orderFunc( waveFunc, frame )
+    regions = set( map( lambda x: tuple(x), np.argwhere( orderParam > threshold ) ) ) 
+    if takePicture:
+        coords = np.array(list(regions))
+    
+        # Extract x and y coordinates
+        x = ( coords[:, 0] - scalars['nx']/2 )* scalars['dx'] 
+        y = ( coords[:, 1] - scalars['ny']/2 )* scalars['dy']
+
+        return x, y
+    
+    centers = []
+    while len( regions ) > 0:
+        startCoord = regions.pop()
+        regions.add( startCoord )
+        currentRegion = { startCoord }
+        foundCoords = set()
+        while len( currentRegion ) > 0:
+            currentCoord = currentRegion.pop()
+            foundCoords.add( currentCoord )
+            regions.remove( currentCoord )
+            for item in mask( currentCoord, scalars ):
+                if item in regions and item not in currentRegion:
+                    currentRegion.add( item )
+        centers.append( (sum( map( lambda x: x[0], foundCoords) )/len(foundCoords), sum(map( lambda x: x[1], foundCoords) )/len(foundCoords) ) )
+
+    return centers
+        
+
+def centerDomains( psi, scalars, givenFrame, threshold=0.7, takePicture=False ):
+
+    def magnetisation( waveFunc, frame ):
+        return np.array( abs( waveFunc["psi_plus"][ :, :, frame ] ) ** 2 - abs( waveFunc["psi_minus"][ :, :, frame ] ) ** 2 )
+    
+    # Need to find the frame at which the transition has just occured so that we can count domains
+    # This should occur approximatly 1 freezing time after the zeroTime.
+    return centerRegions( psi, scalars, magnetisation, givenFrame, threshold=threshold, takePicture=takePicture )
+
+
+def vortexTrackingFilm( psi, scalars, frames_dir, filmName ):
+    
+
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+        
+    xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
+    pathX = []
+    pathY = []
+    for frame in range(scalars["nt"]//scalars["frameRate"]):
+        frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+
+        psiPlus = psi['psi_plus'][:,:,frame]
+        psiMinus = psi['psi_minus'][:,:,frame]
+        
+        centerCoords = centerDomains( psi, scalars, frame, threshold=0.8 )
+        pathX += [ (x - scalars['nx']/2) * scalars['dx'] for (x,_) in centerCoords]
+        pathY += [ (y - scalars['ny']/2) * scalars['dy'] for (_,y) in centerCoords]
+
+
+        fig, ax = plt.subplots(nrows=1,ncols=1,figsize=(6,6))
+        ax.set_aspect('equal')
+        magnetisation = ax.pcolormesh(
+                xMesh,
+                yMesh,
+                abs( psiPlus ) ** 2 - abs( psiMinus ) ** 2 , 
+                vmin=-1, vmax=1 )
+        fig.colorbar( magnetisation )
+
+        plt.scatter( pathX, pathY, color='r', s=10 )
+
+        plt.savefig(frame_path)
+
+        plt.close()
+    ani.movieFromFrames( filmName, frames_dir )
+
+def initialRelaxation( grid, params, psi ):
+    system = gpe.relaxation.SpinorBECGroundState2D( grid, params, psi )
+    percentages = int(params['nit']/100)
+    initials = (np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 ),
+                np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )  )
+    
+    for i in range(params["nit"]):
+        if i % percentages == 0 :
+            print(f'Imaginary Time: {i//percentages}% ')
+            
+
+        # Evolve wavefunction
+        system.fullStep()
+
+    finals = (np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 ),
+                np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )  )
+    print( rf'$|\Delta N|= {abs(initials[0]-finals[0])} |\Delta M|={abs(initials[1]-finals[1] )}$' )
+
+    return system.waveFunctions[-1]
 
 
 def main( recalculate:bool=False ):
 
-    power2 = 8
+    targetDirectory = "dataSpin1"
+    fileName = 'dualVortexAnti.hdf5' 
+    filePath = './dataSpin1/' + fileName
+
+    if os.path.exists( filePath ) and not recalculate:
+        return
+    power2 = 7
     # Generate grid object
     points = (2**power2, 2**power2)
     grid_spacings = (0.5,0.5)
     grid = gpe.Grid(points, grid_spacings)
 
     trap = infinitePotential( grid, 2**(power2-1) - 2 * (power2-5), 2**(power2-1) - 2 * (power2-5) )
-    circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5))
+    # circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 100)
     
     # Condensate parameters
     params = {
-        "c0": 108, # 1 is about right for lithium while 108 is for rubidium
+        "c0": 20, # 1 is about right for lithium while 108 is for rubidium
         "c2": -0.5,
         "p": 0,
         "q": 0,
-        "trap": circularTrap,
+        "trap": trap,
         "n0": 1,
         'qSpace': 0,
         # Time params
-        "dt": (2-1e-5j) * 1e-2,
+        "dt": (1) * 1e-2,
         "nt": 100_000,
+        'nit': 100, # 500 seems good
+        'dit': 1e-2,
         "t": 0,
         "frameRate": 1000,
     }
 
+
+    relax = False
     # Generate wavefunction object, set initial state and add noise
     # I think the speed of sound is n*c_0 in our natural units.
 
     # psi = counterFlowInitial( grid, relVelocity, params )
-    # psi = vortexPairInitial( grid,(10,0), (-10,0) )
+    psi = vortexPairInitial( grid, (10,-10), (-10,10), winding=-1 )
+    # psi = vortexInitial( grid, (10,0))
 
-    # psi = skyrmionInitial( grid, (20,0), (-20,0), 30 )
-    psi = singleSkyrmion( grid, (0,0), 10 )
+    # psi = skyrmionInitial( grid, (10,0), (-10,0), 5, winding=-1 )
+    # psi = singleSkyrmion( grid, (10,0), 5 )
 
-    psi.add_noise("all", 0.0, 1e-4)
+    # psi.add_noise("all", 0.0, 1e-4)
     psi.plus_component[params['trap'] != 0] = 0 
     psi.zero_component[params['trap'] != 0] = 0
     psi.minus_component[params['trap'] != 0] = 0
+    if relax:
+        relaxedSpinor = gpe.relaxation.Spinor( psi.plus_component, psi.zero_component, psi.minus_component )
+        spinor = initialRelaxation( grid, params, relaxedSpinor )
 
-    psi._update_atom_numbers()
+        psiRelaxed = gpe.SpinOneWavefunction(grid)
+        psiRelaxed.set_wavefunction( spinor[1], spinor[0], spinor[-1] )
+    
+    else:
+        psiRelaxed = psi
 
-    psi.fft()  # Ensures k-space wavefunction components are up-to-date before evolution
+    # params['trap'] =  circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 1e10 ) 
+    psiRelaxed.plus_component[params['trap'] != 0] = 0 
+    psiRelaxed.zero_component[params['trap'] != 0] = 0
+    psiRelaxed.minus_component[params['trap'] != 0] = 0
+
+    psiRelaxed.fft()  # Ensures k-space wavefunction components are up-to-date before evolution
+
     start_time = time.time()
 
-    # psi, params = initialCondtiions(1,2,1)
+    # psiRelaxed, params = initialCondtiions(1,2,1) 
 
-    targetDirectory = "dataSpin1"
-    fileName = 'singleSkyrmionStepStructureImag.hdf5' 
-    filePath = './dataSpin1/' + fileName
+    
 
-    if not os.path.exists( filePath ) or recalculate:
-        getData( psi, params, fileName, targetDirectory )
-        print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
+    
+    getData( psiRelaxed, params, fileName, targetDirectory )
+    print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
 if __name__ == '__main__':
-    main(False)
+    main(True)
 
-    file = h5py.File( './dataSpin1/singleSkyrmionStepStructureImag.hdf5', 'r')
+    file = h5py.File( './dataSpin1/dualVortexAnti.hdf5', 'r')
     waveFunc = file['wavefunction']
     scalars = hdf5ReadScalars( file )
     
     # magnetisationPlots(waveFunc, scalars, 500, 'frames' )
-    
+     
     os.makedirs('frames', exist_ok=True)
     for frame in range(scalars["nt"]//scalars["frameRate"]):
-        # ani.takeFrame( waveFunc, scalars, 'frames', frame, 'MAG',[] )
+        # ani.takeFrame( waveFunc, scalars, 'frames', frame, 'DENS',[] )
         # densityFrame( waveFunc, scalars, frame, 'frames')
         # skyrmionNumber( waveFunc, scalars, frame, 'frames' )
         # ani.magnetisationQuiverFrame( waveFunc, scalars, frame, 'frames' )
         # ani.superfluidVelocitiesFrame(waveFunc, scalars, frame, 'frames')
         # magnetisationModulationFrame( waveFunc, scalars, frame, 'frames' )
-        ani.allComponentFrame(waveFunc, scalars, frame, 'frames')
-        # ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
+        # ani.allComponentFrame(waveFunc, scalars, frame, 'frames')
+        # radialFrame( waveFunc, scalars, frame, 'frames' )
+        ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
         # ani.allArgsChemPotFrame( waveFunc, scalars, frame, 'frames' )
         # radialVelocityFrame( waveFunc, scalars, frame, 'frames')
         # relativeArgFrame( waveFunc, frame, 'frames')
@@ -707,5 +887,7 @@ if __name__ == '__main__':
         pass
     
     # plotCorrelation( waveFunc, scalars, 'frames' )
-    ani.movieFromFrames( 'initialSkyrme/singleSkyrmionStepStructureImagAllComp.mp4', 'frames' )
-    # extractRadialProfile( waveFunc, scalars, -10 )
+    ani.movieFromFrames( 'initialSkyrme/dualVortexAntiAllArgs.mp4', 'frames' )
+    # extractRadialProfile( waveFunc, scalars, 17 )
+    # totalEnergyPlot( waveFunc, scalars )
+    # vortexTrackingFilm( waveFunc, scalars, 'frames', 'initialSkyrme/dualSkyrmionTestTracking.mp4')

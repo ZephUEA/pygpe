@@ -206,26 +206,41 @@ def _calc_qpsi(fz, fp, wfn):
 
 
 def _renormalise_wavefunction(wfn: SpinTwoWavefunction) -> None:
-    """Re-normalises the wavefunction to the correct atom number.
-
+    """Re-normalises the wavefunction to the correct atom number and magnetisation.
+    This is based off a projection onto a polyhedron.
     :param wfn: The wavefunction of the system.
     """
     wfn.ifft()
-    correct_atom_num = (
-        wfn.atom_num_plus2
-        + wfn.atom_num_plus1
-        + wfn.atom_num_zero
-        + wfn.atom_num_minus1
-        + wfn.atom_num_minus2
-    )
+    correctAtomNum = wfn.atom_num_plus2 + wfn.atom_num_plus1+ wfn.atom_num_zero + wfn.atom_num_minus1 + wfn.atom_num_minus2
+    correctMagNum = 2 * (wfn.atom_num_plus2 - wfn.atom_num_minus2) + (wfn.atom_num_plus1 - wfn.atom_num_minus1)
+    currentPlus2, currentPlus1, currentZero, currentMinus1, currentMinus2 = _calculate_atom_num( wfn )
+    currentAtomNum = currentPlus2 + currentPlus1 + currentZero + currentMinus1 + currentMinus2
+    currentMagNum = 2 * ( currentPlus2 - currentMinus2 ) + (currentPlus1 - currentMinus1 )
 
-    current_atom_num = _calculate_atom_num(wfn)
+    if correctAtomNum == currentAtomNum and correctMagNum == currentMagNum:
+        wfn.fft()
+        return
+    
+    p1 = ( 4 * correctAtomNum + 2 * correctMagNum - 8 * currentPlus2 + 14 * currentPlus1 - 4 * currentZero - 2 * currentMinus1  ) / 40
+    p2 = ( 8 * correctAtomNum - 8 * currentPlus2 + 2 * currentPlus1 + 12 * currentZero + 2 * currentMinus1 - 8 * currentMinus2  ) / 40
+    p3 = ( 4 * correctAtomNum - 2 * correctMagNum - 2 * currentPlus1 - 4 * currentZero + 14 * currentMinus1 - 8 * currentMinus2 ) / 40
 
-    wfn.plus2_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.plus1_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.zero_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.minus1_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.minus2_component *= cp.sqrt(correct_atom_num / current_atom_num)
+
+    if [p1,p2,p3] not in wfn.polytope.polyhedron: # This deals with if componets become empty
+        p1,p2,p3 = wfn.polytope.project([p1,p2,p3])
+
+    correctPlus2 = (2*correctAtomNum + correctMagNum)/4 - p1 - p2
+    correctPlus1 = 2 * p1
+    correctZero = 2 * p2 - p1 - p3
+    correctMinus1 = 2 * p3
+    correctMinus2 = (2*correctAtomNum - correctMagNum)/4 - p2 - p3
+
+    wfn.plus2_component *= cp.sqrt(correctPlus2/currentPlus2)
+    wfn.plus1_component *= cp.sqrt(correctPlus1/currentPlus1)
+    wfn.zero_component *= cp.sqrt(correctZero/currentZero)
+    wfn.minus1_component *= cp.sqrt(correctMinus1/currentMinus1)
+    wfn.minus2_component *= cp.sqrt(correctMinus2/currentMinus2)
+
     wfn.fft()
 
 
@@ -253,10 +268,4 @@ def _calculate_atom_num(
         cp.abs(wfn.minus2_component) ** 2
     )
 
-    return (
-        atom_num_plus2
-        + atom_num_plus1
-        + atom_num_zero
-        + atom_num_minus1
-        + atom_num_minus2
-    )
+    return atom_num_plus2, atom_num_plus1, atom_num_zero, atom_num_minus1, atom_num_minus2

@@ -6,6 +6,8 @@ try:
 except ImportError:
     import numpy as cp
 
+from pygpe.shared.polyhedron import PolyhedronProjector
+import polytope as pc
 
 class SpinTwoWavefunction(_Wavefunction):
     """Represents the spin-2 BEC wavefunction.
@@ -241,6 +243,7 @@ class SpinTwoWavefunction(_Wavefunction):
         self.atom_num_minus2 = self.grid.grid_spacing_product * cp.sum(
             cp.abs(self.minus2_component) ** 2
         )
+        self._set_polyhedron()
 
     def fft(self) -> None:
         """Fourier transforms real-space components and updates Fourier-space
@@ -274,6 +277,20 @@ class SpinTwoWavefunction(_Wavefunction):
             + cp.abs(self.minus1_component) ** 2
             + cp.abs(self.minus2_component) ** 2
         )
+    
+    def _set_polyhedron( self ) -> None:
+        '''Sets the internal magnetic polytope for projection to allow 
+        imaginary time evolution.
+
+        REQUIRED FOR COMPLEX EVOLUTION.
+        '''
+        num = self.atom_num_plus2 + self.atom_num_plus1 + self.atom_num_zero + self.atom_num_minus1 + self.atom_num_minus2
+        mag = 2 * ( self.atom_num_plus2 - self.atom_num_minus2 ) + ( self.atom_num_plus1 - self.atom_num_minus1 ) 
+        hMatrix = cp.array([[1,1,0],[-1,0,0],[1,-2,1],[0,0,-1],[0,1,1]])
+        hVector = cp.array([(2*num+mag)/4,0,0,0,(2*num-mag)/4])
+        polytope = pc.Polytope( hMatrix, hVector )
+
+        self.polytope = PolyhedronProjector( polytope )
 
 
 def _uniaxial_initial_state(wfn: SpinTwoWavefunction, params: dict) -> None:

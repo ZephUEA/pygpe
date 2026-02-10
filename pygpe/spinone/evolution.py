@@ -126,27 +126,63 @@ def _calculate_density(wfn: SpinOneWavefunction) -> cp.ndarray:
 
 
 def _renormalise_wavefunction(wfn: SpinOneWavefunction) -> None:
-    """Re-normalises the wavefunction to the correct atom number.
-    Needs to keep magnetisation constant
+    """Re-normalises the wavefunction to the 
+    correct atom number and magnetisation 
+    -> need to have projectors satisfying (+1)(-1) = (0)^2
 
     :param wfn: The wavefunction of the system.
     """
     wfn.ifft()
-    correct_atom_num = wfn.atom_num_plus + wfn.atom_num_zero + wfn.atom_num_minus
-    correct_mag_num = wfn.atom_num_minus - wfn.atom_num_minus
-    current_atom_num = _calculate_atom_num(wfn)
-    current_mag_num = 
-    wfn.plus_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.zero_component *= cp.sqrt(correct_atom_num / current_atom_num)
-    wfn.minus_component *= cp.sqrt(correct_atom_num / current_atom_num)
+    correctAtomNum = wfn.atom_num_plus + wfn.atom_num_zero + wfn.atom_num_minus
+    correctMagNum = wfn.atom_num_plus - wfn.atom_num_minus
+    currentPlus, currentZero, currentMinus = _calculate_atom_nums(wfn)
+    currentAtomNum = currentMinus + currentZero + currentPlus
+    # currentMagNum = currentPlus - currentMinus
+
+    # if correctAtomNum == currentAtomNum and correctMagNum == currentMagNum:
+    #     wfn.fft()
+    #     return
+    
+    # distance = (2 * currentZero - currentPlus - currentMinus + correctAtomNum)/6
+
+    # # components cant have less than zero atoms in
+    # distance = cp.clip(distance, 0, (correctAtomNum-abs(correctMagNum))/2 )
+
+    # correctPlusNum = (correctAtomNum+correctMagNum)/2 - distance
+    # correctZeroNum = 2 * distance
+    # correctMinusNum = (correctAtomNum - correctMagNum)/2 - distance
+
+
+    # wfn.plus_component *= cp.sqrt( correctPlusNum / currentPlus )
+    # wfn.zero_component *= cp.sqrt( correctZeroNum / currentZero )
+    # wfn.minus_component *=  cp.sqrt( correctMinusNum / currentMinus )
+
+    # zeroProjectorSquare = (correctAtomNum**2-correctMagNum**2) / (correctAtomNum*currentZero + 
+    #                             cp.sqrt( 4 * (correctAtomNum**2-correctMagNum**2)*currentPlus*currentMinus
+    #                                         + correctMagNum**2*currentZero**2 ) )
+
+    # plusProjector = cp.sqrt(correctAtomNum+correctMagNum-currentZero*zeroProjectorSquare)/cp.sqrt(2*currentPlus)
+    # zeroProjector = cp.sqrt(zeroProjectorSquare)
+    # minusProjector = cp.sqrt(correctAtomNum-correctMagNum-currentZero*zeroProjectorSquare)/cp.sqrt(2*currentMinus)
+
+    # wfn.plus_component *= plusProjector
+    # wfn.zero_component *= zeroProjector
+    # wfn.minus_component *=  minusProjector
+
+    wfn.plus_component *= cp.sqrt(correctAtomNum/currentAtomNum)
+    wfn.zero_component *= cp.sqrt(correctAtomNum/currentAtomNum)
+    wfn.minus_component *=  cp.sqrt(correctAtomNum/currentAtomNum)
+
+
+
     wfn.fft()
 
 
-def _calculate_atom_num(wfn: SpinOneWavefunction) -> float:
+def _calculate_atom_nums(wfn: SpinOneWavefunction) -> float:
     """Calculates the total atom number of the system.
 
     :param wfn: The wavefunction of the system.
-    :return: The total atom number.
+    :return: The total atom number for each component.
     """
     atom_num_plus = wfn.grid.grid_spacing_product * cp.sum(
         cp.abs(wfn.plus_component) ** 2
@@ -158,19 +194,4 @@ def _calculate_atom_num(wfn: SpinOneWavefunction) -> float:
         cp.abs(wfn.minus_component) ** 2
     )
 
-    return atom_num_plus + atom_num_zero + atom_num_minus
-
-def _calculate_mag_num(wfn: SpinOneWavefunction) -> float:
-    """Calculates the total atom number of the system.
-
-    :param wfn: The wavefunction of the system.
-    :return: The total atom number.
-    """
-    atom_num_plus = wfn.grid.grid_spacing_product * cp.sum(
-        cp.abs(wfn.plus_component) ** 2
-    )
-    atom_num_minus = wfn.grid.grid_spacing_product * cp.sum(
-        cp.abs(wfn.minus_component) ** 2
-    )
-
-    return atom_num_plus - atom_num_minus
+    return atom_num_plus, atom_num_zero, atom_num_minus
