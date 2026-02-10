@@ -119,7 +119,7 @@ def takeFrame( psi, scalars:dict, frames_dir:str, frame:int, chartType:str, titl
                 vmin=0, vmax=1 )
             fig.colorbar( densityMinus )
         
-        case 'DENS_TOTAL':
+        case 'DENS':
             density = ax.pcolormesh(
                 handle_array(xMesh),
                 handle_array(yMesh),
@@ -471,6 +471,58 @@ def allArgsFrame(psi, scalars, frame, frames_dir):
         vmin=0, vmax=2*cp.pi , cmap='jet')
     axs[2].set_aspect('equal')
     fig.colorbar( argMinus )
+
+    plt.savefig(frame_path)
+
+    plt.close()
+
+def allComponentSpin2Frame(psi, scalars, frame, frames_dir):
+    frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+    fig,axs = plt.subplots(nrows=2,ncols=3,figsize=(18,12))
+    xs = cp.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = cp.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+
+    xMesh, yMesh = cp.meshgrid( xs, ys, indexing='ij' )
+
+    densityPlus2 = axs[0][0].pcolormesh(
+        (xMesh),
+        (yMesh),
+        abs(( psi["psi_plus2"][ :, :, frame ] ) ) ** 2,
+        vmin=0, vmax=1.2 )
+    axs[0][0].set_aspect('equal')
+    fig.colorbar( densityPlus2 )
+
+    densityZero = axs[0][1].pcolormesh(
+        (xMesh),
+        (yMesh),
+        abs(( psi["psi_zero"][ :, :, frame ] ) ) ** 2,
+        vmin=0, vmax=1.2 )
+    axs[0][1].set_aspect('equal')
+    fig.colorbar( densityZero )
+
+    densityMinus2 = axs[0][2].pcolormesh(
+        (xMesh),
+        (yMesh),
+        abs(( psi["psi_minus2"][ :, :, frame ] ) ) ** 2,
+        vmin=0, vmax=1.2 )
+    axs[0][2].set_aspect('equal')
+    fig.colorbar( densityMinus2 )
+
+    densityPlus1 = axs[1][0].pcolormesh(
+        (xMesh),
+        (yMesh),
+        abs(( psi["psi_plus1"][ :, :, frame ] ) ) ** 2,
+        vmin=0, vmax=1.2 )
+    axs[1][0].set_aspect('equal')
+    fig.colorbar( densityPlus1 )
+
+    densityMinus1 = axs[1][2].pcolormesh(
+        (xMesh),
+        (yMesh),
+        abs(( psi["psi_minus1"][ :, :, frame ] ) ) ** 2,
+        vmin=0, vmax=1.2 )
+    axs[1][2].set_aspect('equal')
+    fig.colorbar( densityMinus1 )
 
     plt.savefig(frame_path)
 

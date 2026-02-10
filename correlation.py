@@ -129,8 +129,11 @@ def r2( xs: cp.ndarray, ys: cp.ndarray ) -> float:
     sstot = cp.sum( ( ys - ybar ) ** 2 )
     return ssreg / sstot
 
-def bestFitCurveError( function, xs, ys, deltaYs=None, estimates=None ):
-    fit,cov = curve_fit( function, xs,ys, sigma=deltaYs, absolute_sigma=True, p0=estimates )
+def bestFitCurveError( function, xs, ys, deltaYs=None, estimates=None, bounds=None ):
+    if bounds:
+        fit,cov = curve_fit( function, xs,ys, bounds=bounds )
+    else:
+        fit,cov = curve_fit( function, xs,ys, sigma=deltaYs, absolute_sigma=True, p0=estimates )
     error = np.sqrt( np.diag( cov ) )
     # var1 = fit[0]
     # var2 = fit[1]
