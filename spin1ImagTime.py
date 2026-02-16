@@ -263,9 +263,9 @@ def plotStructureFromFile( filename ):
     psi = file['wavefunction']
     scalars = hdf5ReadScalars( file )
 
-    psiPlus = psi['psi_plus'][:,:,-1]
-    psiZero = psi['psi_zero'][:,:,-1]
-    psiMinus = psi['psi_minus'][:,:,-1]
+    psiPlus = psi['psi_plus'][:,:]
+    psiZero = psi['psi_zero'][:,:]
+    psiMinus = psi['psi_minus'][:,:]
     halfXPoint = psiPlus.shape[0]//2
 
     radius = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']
@@ -285,6 +285,124 @@ def plotStructureFromFile( filename ):
     plt.legend(['Data',f'Linear Core {m[0][0]:.2f}r', fr'$\pi-{a[0][0]:.2f}exp(-{p:.2f}r)/\sqrt{{r}}$', fr'$\pi$'])
     plt.show()
 
+def createFilmFromFile(filePath, filmName, frames_dir, filmType='ALL_COMP' ):
+    file = h5py.File( filePath, 'r')
+    psi = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
+
+    psiPlus = psi['psi_plus'][()]
+    psiZero = psi['psi_zero'][()]
+    psiMinus = psi['psi_minus'][()]
+
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+    xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
+
+    os.makedirs(frames_dir, exist_ok=True)
+    for frame in range( psiPlus.shape[0] ):
+        frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+        
+        match filmType:
+            case 'ALL_COMP':
+                fig,axs = plt.subplots(1,3,figsize=(18,6))
+                plus = axs[0].pcolormesh(
+                (xMesh),
+                (yMesh),
+                ( abs(psiPlus[frame,:,:])**2 ),
+                vmin=0, vmax=1 )
+                axs[0].set_aspect('equal')
+                fig.colorbar( plus )
+                plus = axs[1].pcolormesh(
+                (xMesh),
+                (yMesh),
+                ( abs(psiZero[frame,:,:])**2 ),
+                vmin=0, vmax=1 )
+                axs[1].set_aspect('equal')
+                fig.colorbar( plus )
+                plus = axs[2].pcolormesh(
+                (xMesh),
+                (yMesh),
+                ( abs(psiMinus[frame,:,:])**2 ),
+                vmin=0, vmax=1 )
+                axs[2].set_aspect('equal')
+                fig.colorbar( plus )
+            case 'ALL_ARGS':
+                fig,axs = plt.subplots(1,3,figsize=(18,6))
+                plus = axs[0].pcolormesh(
+                                (xMesh),
+                                (yMesh),
+                                ( np.angle(psiPlus[frame,:,:]) ),
+                                cmap="jet", vmin=-np.pi, vmax=np.pi  )
+                axs[0].set_aspect('equal')
+                fig.colorbar( plus )
+                zero = axs[1].pcolormesh(
+                                (xMesh),
+                                (yMesh),
+                                ( np.angle(psiZero[frame,:,:]) ),
+                                cmap="jet", vmin=-np.pi, vmax=np.pi  )
+                axs[1].set_aspect('equal')
+                fig.colorbar( zero )
+                minus = axs[2].pcolormesh(
+                                (xMesh),
+                                (yMesh),
+                                ( np.angle(psiMinus[frame,:,:]) ),
+                                cmap="jet", vmin=-np.pi, vmax=np.pi  )
+                axs[2].set_aspect('equal')
+                fig.colorbar( minus )
+            case 'DENS':
+                fig, ax = plt.subplots(figsize=(6,6))
+                dens = ax.pcolormesh(
+                            (xMesh),
+                            (yMesh),
+                            ( abs(psiPlus[frame,:,:])**2 + abs(psiZero[frame,:,:])**2 + abs(psiMinus[frame,:,:])**2 ),
+                            vmin=0, vmax=1 )
+                fig.colorbar(dens)
+            case 'SKYRME':
+                fig,axs = plt.subplots(1,3,figsize=(18,6))
+                spinZ = np.array( abs( psiPlus[frame,:,:] )**2 - abs( psiMinus[frame,:,:] )**2 )
+                spinX = np.array(np.conj(psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]+psiMinus[frame,:,:]))/np.sqrt(2)
+                spinY = 1j*np.array(np.conj(-psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]-psiMinus[frame,:,:]))/np.sqrt(2)
+    
+                spinVector = np.array([spinX.real, spinY.real, spinZ.real])
+
+                xx,xy = np.gradient(spinX.real)
+                yx,yy = np.gradient(spinY.real)
+                zx,zy = np.gradient(spinZ.real)
+
+                partialX = np.array([xx,yx,zx])
+                partialY = np.array([xy,yy,zy])
+                crossPartials = np.cross(partialX,partialY,axisa=0,axisb=0,axisc=0)
+                skyrme = spinVector[0]*crossPartials[0] + spinVector[1]*crossPartials[1] + spinVector[2]*crossPartials[2]
+                divergence = xx + yy
+                curlZ = yx - xy
+                skyrmePlot = axs[0].pcolormesh(
+                                        (xMesh),
+                                        (yMesh),
+                                        skyrme,
+                                         vmin=-0.1, vmax=0.1 )
+                fig.colorbar( skyrmePlot )
+                divPlot = axs[1].pcolormesh(
+                                        (xMesh),
+                                        (yMesh),
+                                        divergence,
+                                         vmin=-0.1, vmax=0.1 )
+                fig.colorbar( divPlot )
+                curlPlot = axs[2].pcolormesh(
+                                        (xMesh),
+                                        (yMesh),
+                                        curlZ,
+                                         vmin=-0.1, vmax=0.1 )
+                fig.colorbar( curlPlot )
+
+        plt.savefig(frame_path)
+
+        plt.close()
+    
+    ani.movieFromFrames( filmName, frames_dir )
+
+
 def main():
 
     power2 = 7
@@ -303,16 +421,17 @@ def main():
         "trap": circularTrap,
         # Time params
         "dt": (1) * 1e-2,
-        "nt": 40_000,
+        "nt": 1_000,
         "t":0,
         'n0':1,
         'nx':points[0],
         'ny':points[1],
         'dx':grid_spacings[0],
-        'dy':grid_spacings[1]
+        'dy':grid_spacings[1],
+        'frameRate': 10
     }
 
-    psi = skyrmionInitial( grid, (10,0), (-10,0), 5, winding=-1 )
+    psi = skyrmionInitial( grid, (10,0), (-10,0), 5, winding=1 )
     # psi = singleSkyrmion( grid, (0,0), 5 )
 
     psi.add_noise("all", 0.0, 1e-4)
@@ -329,20 +448,18 @@ def main():
 
     print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
-    frameRate = 100
-
-    magFilm( spinors, params, 'initialSkyrme/dualSkyrmionRelaxImagAntiMag.mp4', 'frames', frameRate=frameRate )
+    magFilm( spinors, params, 'initialSkyrme/dualSkyrmionImagTimeExtraMag.mp4', 'frames', frameRate=params['frameRate'] )
 
         # radialFilm( spinors, params, 'initialSkyrme/imagTanhRad.mp4', 'frames')
 
     filePath = 'dataInitialSkyrme'
     os.makedirs(filePath, exist_ok=True )
-    extractStructure( spinors, params, filePath + '/pairVortexStructureAnti.hdf5', frameRate=frameRate )
+    extractStructure( spinors, params, filePath + '/dualSkyrmionImagTimeExtra.hdf5', frameRate=params['frameRate'] )
 
 
     
 
 if __name__ == '__main__':
     main()
-    # plotStructureFromFile('dataInitialSkyrme/vortexStructure.hdf5')
-
+    # plotStructureFromFile('dataInitialSkyrme/dualSkyrmionImagTimeExtra.hdf5')
+    createFilmFromFile('dataInitialSkyrme/dualSkyrmionImagTimeExtra.hdf5', 'initialSkyrme/dualSkyrmionImagTimeExtraAllComp.mp4.mp4', 'frames', 'ALL_COMP')

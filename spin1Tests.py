@@ -378,7 +378,7 @@ def plotCorrelation( psi, scalars, frames_dir, inverse=False ):
 
 def skyrmionNumber( psi, scalars, frame, frames_dir ):
     frame_path = f"{frames_dir}/frame_{frame:04d}.png"
-    fig,axs = plt.subplots(nrows=2,ncols=3,figsize=(18,12))
+    fig,axs = plt.subplots(nrows=1,ncols=3,figsize=(18,6))
     xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
     ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
 
@@ -402,39 +402,26 @@ def skyrmionNumber( psi, scalars, frame, frames_dir ):
     skyrme = spinVector[0]*crossPartials[0] + spinVector[1]*crossPartials[1] + spinVector[2]*crossPartials[2]
     divergence = xx + yy
     curlZ = yx - xy
-    curlX = zy
-    curlY = -zx
-    skyrmePlot = axs[0][0].pcolormesh(
+    skyrmePlot = axs[0].pcolormesh(
         (xMesh),
         (yMesh),
         skyrme,
          vmin=-0.1, vmax=0.1 )
     fig.colorbar( skyrmePlot )
 
-    divPlot = axs[0][1].pcolormesh(
+    divPlot = axs[1].pcolormesh(
         (xMesh),
         (yMesh),
         divergence,
         vmin=-1, vmax=1)
     fig.colorbar( divPlot )
-    curlZPlot = axs[1][0].pcolormesh(
+    curlZPlot = axs[2].pcolormesh(
         (xMesh),
         (yMesh),
         curlZ,
         vmin=-1, vmax=1)
     fig.colorbar( curlZPlot )
-    curlXPlot = axs[1][1].pcolormesh(
-        (xMesh),
-        (yMesh),
-        curlX,
-        vmin=-1, vmax=1)
-    fig.colorbar( curlXPlot )
-    curlYPlot = axs[1][2].pcolormesh(
-        (xMesh),
-        (yMesh),
-        curlY,
-        vmin=-1, vmax=1)
-    fig.colorbar( curlYPlot )
+
     plt.savefig(frame_path)
 
     plt.close()
@@ -790,6 +777,7 @@ def main( recalculate:bool=False ):
 
     if os.path.exists( filePath ) and not recalculate:
         return
+    
     power2 = 7
     # Generate grid object
     points = (2**power2, 2**power2)
@@ -861,9 +849,9 @@ def main( recalculate:bool=False ):
     print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
 if __name__ == '__main__':
-    main(True)
+    main(False)
 
-    file = h5py.File( './dataSpin1/dualVortexAnti.hdf5', 'r')
+    file = h5py.File( './dataSpin1/dualSkyrmionRelaxAnti.hdf5', 'r')
     waveFunc = file['wavefunction']
     scalars = hdf5ReadScalars( file )
     
@@ -873,13 +861,13 @@ if __name__ == '__main__':
     for frame in range(scalars["nt"]//scalars["frameRate"]):
         # ani.takeFrame( waveFunc, scalars, 'frames', frame, 'DENS',[] )
         # densityFrame( waveFunc, scalars, frame, 'frames')
-        # skyrmionNumber( waveFunc, scalars, frame, 'frames' )
+        skyrmionNumber( waveFunc, scalars, frame, 'frames' )
         # ani.magnetisationQuiverFrame( waveFunc, scalars, frame, 'frames' )
         # ani.superfluidVelocitiesFrame(waveFunc, scalars, frame, 'frames')
         # magnetisationModulationFrame( waveFunc, scalars, frame, 'frames' )
         # ani.allComponentFrame(waveFunc, scalars, frame, 'frames')
         # radialFrame( waveFunc, scalars, frame, 'frames' )
-        ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
+        # ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
         # ani.allArgsChemPotFrame( waveFunc, scalars, frame, 'frames' )
         # radialVelocityFrame( waveFunc, scalars, frame, 'frames')
         # relativeArgFrame( waveFunc, frame, 'frames')
@@ -887,7 +875,7 @@ if __name__ == '__main__':
         pass
     
     # plotCorrelation( waveFunc, scalars, 'frames' )
-    ani.movieFromFrames( 'initialSkyrme/dualVortexAntiAllArgs.mp4', 'frames' )
+    ani.movieFromFrames( 'initialSkyrme/dualSkyrmionRelaxAntiSkyrme.mp4', 'frames' )
     # extractRadialProfile( waveFunc, scalars, 17 )
     # totalEnergyPlot( waveFunc, scalars )
     # vortexTrackingFilm( waveFunc, scalars, 'frames', 'initialSkyrme/dualSkyrmionTestTracking.mp4')
