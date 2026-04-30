@@ -1,14 +1,23 @@
 import pygpe.spintwo as gpe
-from pygpe.spintwo.relaxation import SpinorBECGroundState2D, Spinor
+from pygpe.spintwo.relaxationPrime import SpinorBECGroundState2D, Spinor
 import os
 import time
 import h5py
 import animation as ani
 import matplotlib.pyplot as plt
 import numpy as np
-import pygpe.shared.vortices as vort
+import random
+import polytope as pc
+from pygpe.shared.polyhedron import PolyhedronProjector
 
 # np.seterr(all='raise')
+
+
+pauliX = np.array([[0,1,0,0,0],[1,0,np.sqrt(3/2),0,0],[0,np.sqrt(3/2),0,np.sqrt(3/2),0],[0,0,np.sqrt(3/2),0,1],[0,0,0,1,0]], dtype='complex128')
+pauliY = 1j * np.array([[0,-1,0,0,0],[1,0,-np.sqrt(3/2),0,0],[0,np.sqrt(3/2),0,-np.sqrt(3/2),0],[0,0,np.sqrt(3/2),0,-1],[0,0,0,1,0]], dtype='complex128')
+pauliZ = np.array([[2,0,0,0,0],[0,1,0,0,0],[0,0,0,0,0],[0,0,0,-1,0],[0,0,0,0,-2]], dtype='complex128')
+paulis = [pauliX,pauliY,pauliZ]
+
 
 def getData( psi:gpe.SpinTwoWavefunction, params:dict, fileName:str, dataPath:str ) -> None:
     data = gpe.DataManager(fileName, dataPath, psi, params)
@@ -17,7 +26,7 @@ def getData( psi:gpe.SpinTwoWavefunction, params:dict, fileName:str, dataPath:st
         for i in range(params["nt"]):
             # if i == 580:
             #     print(i)
-            if i % params["frameRate"] == 0:  # Save wavefunction data and create a frame
+            if i % params["frameRate"] == 0 :  # Save wavefunction data and create a frame
                 data.save_wavefunction(psi)
             
             if i % percentages ==0 :
@@ -32,29 +41,75 @@ def getData( psi:gpe.SpinTwoWavefunction, params:dict, fileName:str, dataPath:st
     except FloatingPointError:
         print(f't={params['t']}, i={i}')
 
-def getRelaxation(grid:gpe.Grid, params:dict, psi  ):
+def getRelaxation(grid:gpe.Grid, params:dict, psi, fileName, dataPath  ):
+    filePath = dataPath + f'/{fileName}'
+    createSaveFile( psi, params, filePath )
     system = SpinorBECGroundState2D( grid, params, psi )
     percentages = int(params['nt']/100)
-    initials = (np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 ),
-                np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )  )
+    initials = (sum( [np.sum( abs(system.waveFunction[i])**2) for i in [-2,-1,0,1,2]] ) ,
+                sum( [np.sum( i * abs(system.waveFunction[i])**2) for i in [-2,-1,0,1,2]] )   )
     
     for i in range(params["nt"]):
         if i % percentages == 0 :
             print(f'{i//percentages}% ')
-            print( f'N = {np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 )}')
-            print( f'MagZ = {np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )}')
+            # print( f'N = {sum( [np.sum( abs(system.waveFunctions[-1][i])**2) for i in [-2,-1,0,1,2]] ) }')
+            # print( f'MagZ = {sum( [np.sum( i * abs(system.waveFunctions[-1][i])**2) for i in [-2,-1,0,1,2]] ) }')
         
+        if i % params["frameRate"] == 0 and i != 0:  # Save wavefunction data and create a frame
+            saveWavefunction(system.waveFunction, filePath)
 
         # Evolve wavefunction
         system.fullStep()
 
         params["t"] += params["dt"]  # Increment time count
 
-    finals = (np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 ),
-                np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )  )
+    finals = (sum( [np.sum( abs(system.waveFunction[i])**2) for i in [-2,-1,0,1,2]] ) ,
+                sum( [np.sum( i * abs(system.waveFunction[i])**2) for i in [-2,-1,0,1,2]] )   )
     print( rf'$|\Delta N|= {abs(initials[0]-finals[0])} |\Delta M|={abs(initials[1]-finals[1] )}$' )
-    return ( system.waveFunctions,  system.computeChemicalPotentials() )
 
+def createSaveFile(spinor, scalars, filePath):
+    with h5py.File(filePath, 'w') as file:
+        params_group = file.create_group("parameters")
+        wavefunction_group = file.create_group("wavefunction")
+
+        for key in scalars:
+            params_group.create_dataset(key, data=scalars[key])
+
+        # Store initial arrays with shape (1, Nx, Ny)
+        # maxshape=(None, Nx, Ny) allows unlimited growth along axis 0
+        for name, component in [
+            ('psi_plus2',  spinor[2]),
+            ('psi_plus1',  spinor[1]),
+            ('psi_zero',   spinor[0]),
+            ('psi_minus1', spinor[-1]),
+            ('psi_minus2', spinor[-2]),  # Note: you had spinor[2] here, likely a bug
+        ]:
+            data = component[np.newaxis, ...]  # shape: (1, Nx, Ny)
+            wavefunction_group.create_dataset(
+                name,
+                data=data,
+                dtype="complex128",
+                maxshape=(None, *component.shape),  # None = unlimited on axis 0
+                chunks=(1, *component.shape),        # one chunk per timeframe
+            )
+
+def saveWavefunction(spinor, filePath):
+    with h5py.File(filePath, 'a') as file:
+        wf = file["wavefunction"]
+
+        components = {
+            'psi_plus2':  spinor[2],
+            'psi_plus1':  spinor[1],
+            'psi_zero':   spinor[0],
+            'psi_minus1': spinor[-1],
+            'psi_minus2': spinor[-2],
+        }
+
+        for name, component in components.items():
+            ds = wf[name]
+            current_len = ds.shape[0]       # current number of saved frames
+            ds.resize(current_len + 1, axis=0)  # grow by 1 along time axis
+            ds[current_len] = component     # write new 2D array into new slot
 
 def hdf5ReadScalars( hdf5Obj, prepend:str='', makeUnique:bool=False ) -> dict:
     resultsDict = {}
@@ -68,6 +123,115 @@ def hdf5ReadScalars( hdf5Obj, prepend:str='', makeUnique:bool=False ) -> dict:
                     dictName = prepend + '_' + name
                 resultsDict.update( { dictName : data[()] } )
     return resultsDict
+
+def createFilmFromFile(filePath, filmName, frames_dir, filmType='MAG' ):
+    file = h5py.File( filePath, 'r')
+    psi = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
+
+    psiP2 = psi['psi_plus2'][()]
+    psiP1 = psi['psi_plus1'][()]
+    psi0 = psi['psi_zero'][()]
+    psiM1 = psi['psi_minus1'][()]
+    psiM2 = psi['psi_minus2'][()]
+
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+    xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
+
+    os.makedirs(frames_dir, exist_ok=True)
+    for frame in range( psi0.shape[0] ):
+        frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+        
+        match filmType:
+            case 'MAG':
+                fig, ax = plt.subplots( figsize=(6,6))
+                mag = ax.pcolormesh(
+                (xMesh),
+                (yMesh),
+                ( 2*(abs(psiP2[frame,:,:])**2-abs(psiM2[frame,:,:])**2) + abs(psiP1[frame,:,:])**2 - abs(psiM1[frame,:,:])**2 ),
+                vmin=-2, vmax=2 )
+                ax.set_aspect('equal')
+                fig.colorbar( mag )
+            case 'A00':
+                fig, ax = plt.subplots( figsize=(6,6))
+                singlet = ax.pcolormesh(
+                (xMesh),
+                (yMesh),
+                abs( 2*psiP2[frame,:,:]*psiM2[frame,:,:] - 2*psiP1[frame,:,:]*psiM1[frame,:,:] + psi0[frame,:,:]**2 )**2 / 5,
+                vmin=0, vmax=0.2 )
+                ax.set_aspect('equal')
+                fig.colorbar( singlet )
+            case 'A30':
+                fig, ax = plt.subplots( figsize=(6,6))
+                triplet = ax.pcolormesh(
+                (xMesh),
+                (yMesh),
+                abs(3 * np.sqrt(3/2)* (psiP1[frame,:,:]**2 * psiM2[frame,:,:] + psiP2[frame,:,:] * psiM1[frame,:,:]**2 ) + psi0[frame,:,:]
+                * (psi0[frame,:,:]**2 - 3 * psiP1[frame,:,:] * psiM1[frame,:,:] - 6 * psiP2[frame,:,:] * psiM2[frame,:,:] ))**2,
+                vmin=0, vmax=2 )
+                ax.set_aspect('equal')
+                fig.colorbar( triplet )
+            case 'ABSMAG':
+                fig, ax = plt.subplots( figsize=(6,6))
+                magZ = 2*(abs(psiP2[frame,:,:])**2-abs(psiM2[frame,:,:])**2) + abs(psiP1[frame,:,:])**2 - abs(psiM1[frame,:,:])**2
+                magPlus = (2 * (np.conj(psiP2)*psiP1 + np.conj(psiM1)*psiM2) + np.sqrt(6)*(np.conj(psiP1)*psi0 + np.conj(psi0)*psiM1))[frame,:,:]
+                mag = ax.pcolormesh(
+                (xMesh),
+                (yMesh),
+                np.sqrt( abs(magZ)**2 + abs( magPlus * np.conj(magPlus) )),
+                vmin=0, vmax=2 )
+                ax.set_aspect('equal')
+                fig.colorbar( mag )
+            case 'ALL':
+                fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(12,12))
+                mag = axs[0][0].pcolormesh(
+                (xMesh),
+                (yMesh),
+                ( 2*(abs(psiP2[frame,:,:])**2-abs(psiM2[frame,:,:])**2) + abs(psiP1[frame,:,:])**2 - abs(psiM1[frame,:,:])**2 ),
+                vmin=-2, vmax=2 )
+                axs[0][0].set_aspect('equal')
+                axs[0][0].set_title(r'$M_z$')
+                fig.colorbar( mag )
+
+                singlet = axs[1][0].pcolormesh(
+                (xMesh),
+                (yMesh),
+                abs( 2*psiP2[frame,:,:]*psiM2[frame,:,:] - 2*psiP1[frame,:,:]*psiM1[frame,:,:] + psi0[frame,:,:]**2 )**2 / 5,
+                vmin=0, vmax=0.2 )
+                axs[1][0].set_aspect('equal')
+                axs[1][0].set_title(r'$|A_{00}|^2$')
+                fig.colorbar( singlet )
+
+
+                triplet = axs[1][1].pcolormesh(
+                (xMesh),
+                (yMesh),
+                abs(3 * np.sqrt(3/2)* (psiP1[frame,:,:]**2 * psiM2[frame,:,:] + psiP2[frame,:,:] * psiM1[frame,:,:]**2 ) + psi0[frame,:,:]
+                * (psi0[frame,:,:]**2 - 3 * psiP1[frame,:,:] * psiM1[frame,:,:] - 6 * psiP2[frame,:,:] * psiM2[frame,:,:] ))**2,
+                vmin=0, vmax=2 )
+                axs[1][1].set_aspect('equal')
+                axs[1][1].set_title(r'$|A_{30}|^2$')
+                fig.colorbar( triplet )
+
+                magZ = 2*(abs(psiP2[frame,:,:])**2-abs(psiM2[frame,:,:])**2) + abs(psiP1[frame,:,:])**2 - abs(psiM1[frame,:,:])**2
+                magPlus = (2 * (np.conj(psiP2)*psiP1 + np.conj(psiM1)*psiM2) + np.sqrt(6)*(np.conj(psiP1)*psi0 + np.conj(psi0)*psiM1))[frame,:,:]
+                magtot = axs[0][1].pcolormesh(
+                (xMesh),
+                (yMesh),
+                np.sqrt( abs(magZ)**2 + abs( magPlus * np.conj(magPlus) )),
+                vmin=0, vmax=2 )
+                axs[0][1].set_aspect('equal')
+                axs[0][1].set_title(r'$|M|$')
+                fig.colorbar( magtot )
+    
+
+
+        plt.savefig(frame_path)
+
+        plt.close()
+    
+    ani.movieFromFrames( filmName, frames_dir )
 
 
 def circularInfinitePotential( grid, radius, magnitude ):
@@ -121,121 +285,64 @@ def totalEnergyPlot( psi, scalars ):
     plt.show()
 
 
-def extractStructure(spinors, scalars, filePath, frameRate=1):
-    cut = slice(0,None,frameRate)
-    saveSpinors = spinors[cut]
-    spinorPlus2 = np.array(list(map( lambda x: x[2], saveSpinors ) ) )
-    spinorPlus1 = np.array(list(map( lambda x: x[1], saveSpinors ) ) )
-    spinorZero = np.array(list(map( lambda x: x[0], saveSpinors ) ) )
-    spinorMinus1 = np.array( list(map( lambda x: x[-1], saveSpinors ) ) )
-    spinorMinus2 = np.array( list(map( lambda x: x[-2], saveSpinors ) ) )
-
-    with h5py.File(filePath, 'w') as file:
-        # Create the groups first
-        params_group = file.create_group("parameters")
-        wavefunction_group = file.create_group("wavefunction")
-        
-        # Add scalar parameters
-        for key in scalars:
-            params_group.create_dataset(key, data=scalars[key])
-        
-        # Create and populate wavefunction datasets
-        wavefunction_group.create_dataset(
-            'psi_plus2',
-            data=spinorPlus2,
-            dtype="complex128",
-        )
-        wavefunction_group.create_dataset(
-            'psi_plus1',
-            data=spinorPlus1,
-            dtype="complex128",
-        )
-        wavefunction_group.create_dataset(
-            'psi_zero',
-            data=spinorZero,
-            dtype="complex128",
-        )
-        wavefunction_group.create_dataset(
-            'psi_minus1',
-            data=spinorMinus1,
-            dtype="complex128",
-        )
-        wavefunction_group.create_dataset(
-            'psi_minus2',
-            data=spinorMinus2,
-            dtype="complex128",
-        )
 
 
-def film( spinors, scalars, filmName, frames_dir, frameRate=1, filmType='MAG' ):
-    os.makedirs(frames_dir, exist_ok=True)
-    for frame in range(len(spinors)//frameRate):
-        frame_path = f"{frames_dir}/frame_{frame:04d}.png"
-        psi = spinors[frame*frameRate]
-        xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
-        ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+def randomInitial( grid, mag ):
+    psi = gpe.SpinTwoWavefunction(grid)
+    phases = [ np.exp(1j* 2*np.pi*random.random()) for _ in range(5) ]
+    hMatrix = np.array([[1,1,0],[-1,0,0],[1,-2,1],[0,0,-1],[0,1,1]])
+    hVector = np.array([(2+mag)/4,0,0,0,(2-mag)/4])
+    polyhedron = PolyhedronProjector( pc.Polytope( hMatrix, hVector ) )
+    point = polyhedron.project( [random.random(), random.random(), random.random()] )
+    initials = [
+        np.sqrt(abs((2+mag)/4 - point[0]-point[1]))*phases[0],
+        np.sqrt(2*point[0])*phases[1],
+        np.sqrt(abs(2*point[1]-point[0]-point[2]))*phases[2],
+        np.sqrt(2*point[2])*phases[3],
+        np.sqrt(abs((2-mag)/4 - point[2]-point[1]) )*phases[4]
+    ]
+    psi.set_wavefunction(*initials)
+    return psi
+
     
 
-        xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
-        fig, ax = plt.subplots(figsize=(6,6))
-        
-        match filmType:
-            case 'MAG':
-                mag = ax.pcolormesh(
-                (xMesh),
-                (yMesh),
-                ( 2*(abs(psi[2])**2-abs(psi[-2])**2) + abs(psi[1])**2 - abs(psi[-1])**2 ),
-                vmin=-2, vmax=2 )
-                ax.set_aspect('equal')
-                fig.colorbar( mag )
-            case 'DENS':
-                dens = ax.pcolormesh(
-                (xMesh),
-                (yMesh),
-                ( abs(psi[2])**2+abs(psi[-2])**2 + abs(psi[1])**2 + abs(psi[-1])**2 + abs(psi[0])**2  ),
-                vmin=-2, vmax=2 )
-                ax.set_aspect('equal')
-                fig.colorbar( dens )
-        
-        plt.savefig(frame_path)
+def main( fileName, mag ):
 
-        plt.close()
-
-    ani.movieFromFrames( filmName, frames_dir )
-
-def main( recalculate:bool=False ):
-
-    power2 = 7
+    power2 = 8
     # Generate grid object
     points = (2**power2, 2**power2)
     grid_spacings = (0.5,0.5)
     grid = gpe.Grid(points, grid_spacings)
 
     # trap = infinitePotential( grid, 2**(power2-1) - 2 * (power2-5), 2**(power2-1) - 2 * (power2-5) )
-    circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 100 )
+    circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 1e10 )
     # Condensate parameters
     params = {
         "c0": 20,
         "c2": -4,
-        "c4": 0,
-        "p": 0,
-        "q": 0,
+        "c4": 4,
+        "p": 0, # p not yet implemented
+        "q": -1,
         "trap": circularTrap,
         "n0": 1,
         # Time params
         "dt": (1) * 1e-2,
-        "nt": 100,
+        "nt": 1000,
         "t": 0,
         'nx':points[0],
         'ny':points[1],
         'dx':grid_spacings[0],
         'dy':grid_spacings[1],
-        "frameRate": 1,
+        "frameRate": 10,
     }
-    psi = gpe.SpinTwoWavefunction(grid)
+    # psi = gpe.SpinTwoWavefunction(grid)
 
-    psi.set_wavefunction(0,1,0,0,0)
-    psi.add_noise(['plus1','zero','minus1'], 0.0, 1e-4)
+    # # M >= 0 for relaxationPrime to work
+    # psi.set_wavefunction(0,0,1,0,0)
+
+    psi = randomInitial( grid, mag )
+
+    psi.add_noise('all', 0.0, 1e-4)
 
     psi.plus2_component[params['trap'] != 0] = 0 
     psi.plus1_component[params['trap'] != 0] = 0 
@@ -246,22 +353,17 @@ def main( recalculate:bool=False ):
     psi.fft()  # Ensures k-space wavefunction components are up-to-date before evolution
     start_time = time.time()
 
-
-    targetDirectory = "dataSpin2"
-    fileName = 'nematicConditionsQ=-1.hdf5'
-    filePath = './dataSpin2/' + fileName
-
-
-
-    spinors, (mu, lam) = getRelaxation( grid, params, Spinor( psi.plus2_component, psi.plus1_component, psi.zero_component, psi.minus1_component, psi.minus2_component ) )
-    params.update({'mu':mu, 'lambda': lam })
     filePath = 'dataSpin2'
+
+
     os.makedirs(filePath, exist_ok=True )
-    extractStructure( spinors, params, filePath + '/ferroConditions.hdf5', frameRate=params['frameRate'] )
+    getRelaxation( grid, params,  Spinor( psi.plus2_component, psi.plus1_component, psi.zero_component, psi.minus1_component, psi.minus2_component ), fileName, filePath )
+    
+    # extractStructure( spinors, params, filePath + f'/{fileName}', frameRate=params['frameRate'] )
 
     print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
-    # film( spinors, params, 'spin2GroundStates/ferroConditionsQ=-1Mag.mp4', 'frames', frameRate=params['frameRate'], filmType='DENS' )
+    # film( spinors, params, 'spin2GroundStates/ferroConditionsMag.mp4', 'frames', frameRate=params['frameRate'], filmType='MAG' )
 
 
 
@@ -270,15 +372,18 @@ def main( recalculate:bool=False ):
     
 
 if __name__ == '__main__':
-    main(True)
+    name = 'ferroConditionsMag1Q-1'
+    fileName = name + '.hdf5'
+    path = './dataSpin2/' + fileName
 
-    # file = h5py.File( './dataSpin2/nematicConditionsQ=-1.hdf5', 'r')
-    # waveFunc = file['wavefunction']
-    # scalars = hdf5ReadScalars( file )
+    calculate = True
+    mag = 1
 
-    # os.makedirs('frames', exist_ok=True)
-    # for frame in range(scalars["nt"]//scalars["frameRate"]):
-    #     ani.allComponentSpin2Frame(waveFunc, scalars, frame, 'frames')
+    if calculate:
+        main( fileName, mag )
 
-    # ani.movieFromFrames( 'spin2GroundStates/nematicConditionsQ=-1AllComp.mp4', 'frames' )
-    # totalEnergyPlot( waveFunc, scalars )
+    file = h5py.File( path, 'r')
+    waveFunc = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
+
+    createFilmFromFile(f'dataSpin2/{name}.hdf5', f'spin2GroundStates/{name}All.mp4', 'frames', 'ALL')

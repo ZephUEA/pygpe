@@ -10,6 +10,8 @@ import correlation as corr
 from scipy.optimize import curve_fit
 # np.seterr(all='raise')
 
+pauliMatrix = np.array([[[0,1/np.sqrt(2),0],[1/np.sqrt(2),0,1/np.sqrt(2)],[0,1/np.sqrt(2),0]],[[0,-1j/np.sqrt(2),0],[1j/np.sqrt(2),0,-1j/np.sqrt(2)],[0,1j/np.sqrt(2),0]],[[1,0,0],[0,0,0],[0,0,-1]]])
+
 def getData( psi:gpe.SpinOneWavefunction, params:dict, fileName:str, dataPath:str ) -> None:
     data = gpe.DataManager(fileName, dataPath, psi, params)
     percentages = int(params['nt']/100)
@@ -407,21 +409,104 @@ def skyrmionNumber( psi, scalars, frame, frames_dir ):
         (yMesh),
         skyrme,
          vmin=-0.1, vmax=0.1 )
+    axs[0].set_aspect('equal')
+    axs[0].set_title('Skyrme')
     fig.colorbar( skyrmePlot )
 
     divPlot = axs[1].pcolormesh(
         (xMesh),
         (yMesh),
         divergence,
-        vmin=-1, vmax=1)
+        vmin=-0.1, vmax=0.1)
+    axs[1].set_aspect('equal')
+    axs[1].set_title('Divergence')
     fig.colorbar( divPlot )
     curlZPlot = axs[2].pcolormesh(
         (xMesh),
         (yMesh),
         curlZ,
-        vmin=-1, vmax=1)
+        vmin=-0.1, vmax=0.1)
+    axs[2].set_aspect('equal')
+    axs[2].set_title('Curl')
     fig.colorbar( curlZPlot )
 
+    plt.savefig(frame_path)
+
+    plt.close()
+
+def kineticPlot( psi, scalars, frame, frames_dir ):
+    frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+    fig,ax = plt.subplots(figsize=(6,6))
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+
+    xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
+
+    spinZ = np.array( abs( psi['psi_plus'][:,:,frame] )**2 - abs( psi['psi_minus'][:,:,frame] )**2 )
+    spinX = np.array(np.conj(psi['psi_plus'][:,:,frame]+psi['psi_minus'][:,:,frame])*psi['psi_zero'][:,:,frame] 
+                            + np.conj(psi['psi_zero'][:,:,frame])*(psi['psi_plus'][:,:,frame]+psi['psi_minus'][:,:,frame]))/np.sqrt(2)
+    spinY = 1j*np.array(np.conj(-psi['psi_plus'][:,:,frame]+psi['psi_minus'][:,:,frame])*psi['psi_zero'][:,:,frame] 
+                            + np.conj(psi['psi_zero'][:,:,frame])*(psi['psi_plus'][:,:,frame]-psi['psi_minus'][:,:,frame]))/np.sqrt(2)
+    
+
+    xx,xy = np.gradient(spinX.real)
+    yx,yy = np.gradient(spinY.real)
+    zx,zy = np.gradient(spinZ.real)
+
+    kineticPlot = ax.pcolormesh(
+        (xMesh),
+        (yMesh),
+        xx*xx + xy*xy + yx*yx + yy*yy + zx*zx + zy*zy,
+         vmin=0, vmax=0.1 )
+    fig.colorbar( kineticPlot )
+    ax.set_aspect('equal')
+
+    
+    plt.savefig(frame_path)
+
+    plt.close()
+
+def testPlot( psi, scalars, frame, frames_dir ):
+    frame_path = f"{frames_dir}/frame_{frame:04d}.png"
+    fig,axs = plt.subplots(nrows=1,ncols=2,figsize=(12,6))
+    skip = 4
+    psiPlusX, psiPlusY = np.gradient( psi['psi_plus'][:,:,frame], scalars['dx'], scalars['dy'] )
+    psiZeroX, psiZeroY = np.gradient( psi['psi_zero'][:,:,frame], scalars['dx'], scalars['dy'] )
+    psiMinusX, psiMinusY = np.gradient( psi['psi_minus'][:,:,frame], scalars['dx'], scalars['dy'] )
+    vxprecursor = np.conj(psi['psi_plus'][:,:,frame]) * psiPlusX + np.conj(psi['psi_zero'][:,:,frame]) * psiZeroX + np.conj(psi['psi_minus'][:,:,frame]) * psiMinusX 
+    vyprecursor = np.conj(psi['psi_plus'][:,:,frame]) * psiPlusY + np.conj(psi['psi_zero'][:,:,frame]) * psiZeroY + np.conj(psi['psi_minus'][:,:,frame]) * psiMinusY 
+    vx = (vxprecursor - np.conj(vxprecursor)).imag
+    vy = (vyprecursor - np.conj(vyprecursor)).imag
+    vxx, vxy = np.gradient( vx )
+    vyx, vyy = np.gradient( vy )
+
+    curl = vyx - vxy
+    div = vxx + vyy
+  
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+
+    xMesh, yMesh = np.meshgrid(xs, ys, indexing='ij')
+    curlPlot=axs[0].pcolormesh(
+        (xMesh),
+        (yMesh),
+        curl,
+         vmin=-0.2, vmax=0.2 )
+    axs[0].set_title('Superfluid velocity curl')
+    axs[0].set_aspect('equal')
+    fig.colorbar( curlPlot )
+
+    divPlot = axs[1].pcolormesh(
+        (xMesh),
+        (yMesh),
+        div,
+         vmin=-0.2, vmax=0.2 )
+    axs[1].set_title('superfluid velocity div')
+    axs[1].set_aspect('equal')
+    fig.colorbar( divPlot )
+
+
+    
     plt.savefig(frame_path)
 
     plt.close()
@@ -441,6 +526,7 @@ def densityFrame(psi, scalars, frame, frames_dir ):
         density,
         vmin=0.0, vmax=2 )
     fig.colorbar( densityPlot )
+    ax.set_aspect('equal')
 
     plt.savefig(frame_path)
 
@@ -457,11 +543,11 @@ def removePhaseDiscontinuity( phase ):
     return newPhase
 
 
-def skyrmionInitial( grid, coord1, coord2, radius, winding=1 ):
+def skyrmionInitial( grid, coord1, coord2, radius, winding=1, ratio=1 ):
     
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     r2 = np.sqrt( (grid.x_mesh-coord2[0])**2 + (grid.y_mesh-coord2[1])**2 )
-    beta1 = np.pi * (np.tanh( r1/radius ))
+    beta1 = np.pi * (np.tanh( r1/(radius*ratio) ))
     beta2 = np.pi * (np.tanh( r2/radius ))
 
     plusComp =  (np.cos(beta1/2))**2 + (np.cos(beta2/2))**2
@@ -502,7 +588,7 @@ def vortexInitial( grid, coord1 ):
     return psi
 
 
-def singleSkyrmion(grid, coord1, radius):
+def singleSkyrmion(grid, coord1, radius, charge=1, offsetX=0):
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     beta1 = np.pi * (np.tanh( r1/radius ))
     # beta1 = np.pi * ( (np.sign(r1-radius/2)+1)/2 + (np.sign(r1-radius)+1)/2 )/2
@@ -513,11 +599,10 @@ def singleSkyrmion(grid, coord1, radius):
 
     psi = gpe.SpinOneWavefunction(grid)
     psi.set_wavefunction(plusComp,zeroComp,minusComp)
-    phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
-    phaseTotal = phase1 
+    phase = charge * vort._calculate_vortex_contribution(grid, coord1[0] + offsetX ,coord1[1],1)
     # phaseTotal = removePhaseDiscontinuity( phaseTotal )
-    psi.apply_phase( phaseTotal,['zero','minus'] )
-    psi.apply_phase( phaseTotal, 'minus' )
+    psi.apply_phase( phase,['zero','minus'] )
+    psi.apply_phase( phase, 'minus' )
     return psi
 
 def harmonicPotential( grid, trapLength ):
@@ -566,13 +651,13 @@ def radialVelocityFrame( psi, scalars, frame, frames_dir ):
     xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
     r = np.sqrt( abs(xMesh)**2 + abs(yMesh)**2 )
 
-    fig, axs = plt.subplots(nrows=1,ncols=2,figsize=(12,6))
+    fig, axs = plt.subplots(nrows=1,ncols=3,figsize=(18,6))
 
     speedPlot = axs[0].pcolormesh(
         (xMesh),
         (yMesh),
         ( speed ),
-        vmin=0 )
+        vmin=0, vmax=0.2 )
     axs[0].set_aspect('equal')
     axs[0].set_title('Numerics')
     fig.colorbar( speedPlot )
@@ -582,10 +667,20 @@ def radialVelocityFrame( psi, scalars, frame, frames_dir ):
         (xMesh),
         (yMesh),
         np.nan_to_num( (2 * np.sin(beta/2)**2)/r, posinf=0 ),
-        vmin=0 )
+        vmin=0, vmax=0.2 )
     axs[1].set_aspect('equal')
     axs[1].set_title('Theory')
     fig.colorbar( theoryPlot )
+
+    diffPlot = axs[2].pcolormesh(
+        xMesh,
+        yMesh,
+        abs(speed - np.nan_to_num( (2 * np.sin(beta/2)**2)/r, posinf=0 )),
+        vmin=0,vmax=0.2
+    )
+    axs[2].set_aspect('equal')
+    axs[2].set_title('Difference')
+    fig.colorbar( diffPlot )
 
     plt.savefig(frame_path)
 
@@ -750,7 +845,7 @@ def vortexTrackingFilm( psi, scalars, frames_dir, filmName ):
 
 def initialRelaxation( grid, params, psi ):
     system = gpe.relaxation.SpinorBECGroundState2D( grid, params, psi )
-    percentages = int(params['nit']/100)
+    percentages = params['nit']//100
     initials = (np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 ),
                 np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )  )
     
@@ -768,11 +863,25 @@ def initialRelaxation( grid, params, psi ):
 
     return system.waveFunctions[-1]
 
+def integratedComponentDensitiesDelta( psi ):
+    nPlusStart = abs( psi['psi_plus'][:,:,0] ) ** 2
+    nZeroStart = abs( psi['psi_zero'][:,:,0] ) ** 2
+    nMinusStart = abs( psi['psi_minus'][:,:,0] ) ** 2
 
-def main( recalculate:bool=False ):
+    nPlusEnd = abs( psi['psi_plus'][:,:,-1] ) ** 2
+    nZeroEnd = abs( psi['psi_zero'][:,:,-1] ) ** 2
+    nMinusEnd = abs( psi['psi_minus'][:,:,-1] ) ** 2
+    nTotEnd = np.sum( nPlusEnd + nZeroEnd + nMinusEnd )
+
+    deltaPlus = abs( np.sum( nPlusStart ) - np.sum( nPlusEnd ) )/ nTotEnd
+    deltaZero = abs( np.sum( nZeroStart ) - np.sum( nZeroEnd ) ) / nTotEnd
+    deltaMinus = abs( np.sum( nMinusStart ) - np.sum( nMinusEnd ) ) / nTotEnd
+    return deltaPlus, deltaZero, deltaMinus
+
+
+def main( fileName, recalculate:bool=False ):
 
     targetDirectory = "dataSpin1"
-    fileName = 'dualVortexAnti.hdf5' 
     filePath = './dataSpin1/' + fileName
 
     if os.path.exists( filePath ) and not recalculate:
@@ -784,8 +893,8 @@ def main( recalculate:bool=False ):
     grid_spacings = (0.5,0.5)
     grid = gpe.Grid(points, grid_spacings)
 
-    trap = infinitePotential( grid, 2**(power2-1) - 2 * (power2-5), 2**(power2-1) - 2 * (power2-5) )
-    # circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 100)
+    # trap = infinitePotential( grid, 2**(power2-1) - 2 * (power2-5), 2**(power2-1) - 2 * (power2-5) )
+    circularTrap = circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 100)
     
     # Condensate parameters
     params = {
@@ -793,29 +902,30 @@ def main( recalculate:bool=False ):
         "c2": -0.5,
         "p": 0,
         "q": 0,
-        "trap": trap,
+        "trap": circularTrap,
         "n0": 1,
         'qSpace': 0,
         # Time params
         "dt": (1) * 1e-2,
-        "nt": 100_000,
-        'nit': 100, # 500 seems good
-        'dit': 1e-2,
+        "nt": 1_000_000,
         "t": 0,
         "frameRate": 1000,
+        # Imag Time Params
+        'dit': 1e-2,
+        'nit': 500, # 500 seems good
     }
 
 
-    relax = False
+    relax = True
     # Generate wavefunction object, set initial state and add noise
     # I think the speed of sound is n*c_0 in our natural units.
 
     # psi = counterFlowInitial( grid, relVelocity, params )
-    psi = vortexPairInitial( grid, (10,-10), (-10,10), winding=-1 )
+    # psi = vortexPairInitial( grid, (10,-10), (-10,10), winding=-1 )   
     # psi = vortexInitial( grid, (10,0))
 
-    # psi = skyrmionInitial( grid, (10,0), (-10,0), 5, winding=-1 )
-    # psi = singleSkyrmion( grid, (10,0), 5 )
+    psi = skyrmionInitial( grid, (5,0), (-5,0), 10, winding=1, ratio=1 )
+    # psi = singleSkyrmion( grid, (0,0), 5, offsetX=3 )
 
     # psi.add_noise("all", 0.0, 1e-4)
     psi.plus_component[params['trap'] != 0] = 0 
@@ -831,7 +941,9 @@ def main( recalculate:bool=False ):
     else:
         psiRelaxed = psi
 
-    # params['trap'] =  circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 1e10 ) 
+    
+
+    params['trap'] =  circularInfinitePotential( grid, 2**(power2-2) - 2*(power2-5), 1e10 ) 
     psiRelaxed.plus_component[params['trap'] != 0] = 0 
     psiRelaxed.zero_component[params['trap'] != 0] = 0
     psiRelaxed.minus_component[params['trap'] != 0] = 0
@@ -839,19 +951,17 @@ def main( recalculate:bool=False ):
     psiRelaxed.fft()  # Ensures k-space wavefunction components are up-to-date before evolution
 
     start_time = time.time()
-
-    # psiRelaxed, params = initialCondtiions(1,2,1) 
-
-    
-
     
     getData( psiRelaxed, params, fileName, targetDirectory )
     print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
 if __name__ == '__main__':
-    main(False)
+    name = 'distance10'
+    fileName = name + '.hdf5'
+    path = './dataSpin1/' + fileName
+    # main(fileName, True)
 
-    file = h5py.File( './dataSpin1/dualSkyrmionRelaxAnti.hdf5', 'r')
+    file = h5py.File( path, 'r')
     waveFunc = file['wavefunction']
     scalars = hdf5ReadScalars( file )
     
@@ -859,23 +969,25 @@ if __name__ == '__main__':
      
     os.makedirs('frames', exist_ok=True)
     for frame in range(scalars["nt"]//scalars["frameRate"]):
-        # ani.takeFrame( waveFunc, scalars, 'frames', frame, 'DENS',[] )
+        # ani.takeFrame( waveFunc, scalars, 'frames', frame, 'MAG',[] )
         # densityFrame( waveFunc, scalars, frame, 'frames')
-        skyrmionNumber( waveFunc, scalars, frame, 'frames' )
+        # skyrmionNumber( waveFunc, scalars, frame, 'frames' )
+        # kineticPlot( waveFunc, scalars, frame, 'frames' )
         # ani.magnetisationQuiverFrame( waveFunc, scalars, frame, 'frames' )
         # ani.superfluidVelocitiesFrame(waveFunc, scalars, frame, 'frames')
-        # magnetisationModulationFrame( waveFunc, scalars, frame, 'frames' )
         # ani.allComponentFrame(waveFunc, scalars, frame, 'frames')
         # radialFrame( waveFunc, scalars, frame, 'frames' )
-        # ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
+        ani.allArgsFrame( waveFunc, scalars, frame, 'frames')
         # ani.allArgsChemPotFrame( waveFunc, scalars, frame, 'frames' )
         # radialVelocityFrame( waveFunc, scalars, frame, 'frames')
         # relativeArgFrame( waveFunc, frame, 'frames')
         # spinDistribution( waveFunc, frame, 'frames', bins=1000)
+        # testPlot( waveFunc, scalars, frame, 'frames' )
         pass
     
     # plotCorrelation( waveFunc, scalars, 'frames' )
-    ani.movieFromFrames( 'initialSkyrme/dualSkyrmionRelaxAntiSkyrme.mp4', 'frames' )
+    ani.movieFromFrames( f'initialSkyrme/{name}AllArgs.mp4', 'frames' )
+    # print( integratedComponentDensitiesDelta( waveFunc ) )
     # extractRadialProfile( waveFunc, scalars, 17 )
     # totalEnergyPlot( waveFunc, scalars )
     # vortexTrackingFilm( waveFunc, scalars, 'frames', 'initialSkyrme/dualSkyrmionTestTracking.mp4')

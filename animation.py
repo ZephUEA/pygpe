@@ -182,8 +182,8 @@ def takeFrame( psi, scalars:dict, frames_dir:str, frame:int, chartType:str, titl
             absMag = ax.pcolormesh(
                 handle_array( xMesh ),
                 handle_array( yMesh ),
-                handle_array( cp.sqrt( abs(transMag[0])**2 +  abs( abs( psi["psi_plus"][ :, :, frame ] ) ** 2 - abs( psi["psi_minus"][ :, :, frame ] ) ** 2 ) )), 
-                vmin=0, vmax=2 )
+                handle_array( cp.sqrt( abs(transMag[0])**2 +  abs( abs( psi["psi_plus"][ :, :, frame ] ) ** 2 - abs( psi["psi_minus"][ :, :, frame ] ) ** 2 ) ** 2 )), 
+                vmin=0, vmax=1.2 )
             fig.colorbar( absMag )
             
 
@@ -198,6 +198,7 @@ def takeFrame( psi, scalars:dict, frames_dir:str, frame:int, chartType:str, titl
         case _:
             raise ValueError(f"{chartType} is not yet implemented.")
 
+    ax.set_aspect('equal')
     fig.suptitle( prettyString( scalars, titleElements ) )
     plt.savefig(frame_path)
 
@@ -288,7 +289,7 @@ def magnetisationQuiverFrame( psi, scalars, frame, frames_dir ):
 
     X, Y = cp.meshgrid(xs, ys, indexing='ij')
 
-    fig, axs = plt.subplots(nrows=2,ncols=3,figsize=(18, 12))
+    fig, ax = plt.subplots(figsize=(6, 6))
 
     # Subsample to avoid overcrowding (every nth point)
     # 1. Multiple subplots showing different projections
@@ -296,72 +297,72 @@ def magnetisationQuiverFrame( psi, scalars, frame, frames_dir ):
     skip = 4
 
     # XY projection (colored by fz)
-    axs[1][0].quiver(X[::skip, ::skip], Y[::skip, ::skip], 
+    ax.quiver(X[::skip, ::skip], Y[::skip, ::skip], 
                 fx[::skip, ::skip], fy[::skip, ::skip], 
                 fz[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
                  cmap='RdBu_r')
-    axs[1][0].set_title('XY projection (color: $S_z$)')
-    axs[1][0].set_aspect('equal')
+    ax.set_title('XY projection (color: $S_z$)')
+    ax.set_aspect('equal')
 
-    # XZ projection (colored by fy)
-    axs[1][1].quiver(X[::skip, ::skip], Y[::skip, ::skip], 
-                fx[::skip, ::skip], fz[::skip, ::skip], 
-                fy[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
-                 cmap='RdBu_r')
-    axs[1][1].set_title('XZ projection (color: $S_y$)')
-    axs[1][1].set_aspect('equal')
+    # # XZ projection (colored by fy)
+    # axs[1][1].quiver(X[::skip, ::skip], Y[::skip, ::skip], 
+    #             fx[::skip, ::skip], fz[::skip, ::skip], 
+    #             fy[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
+    #              cmap='RdBu_r')
+    # axs[1][1].set_title('XZ projection (color: $S_y$)')
+    # axs[1][1].set_aspect('equal')
 
-    # YZ projection (colored by fx)
-    axs[1][2].quiver(X[::skip, ::skip], Y[::skip, ::skip], 
-                fy[::skip, ::skip], fz[::skip, ::skip], 
-                fx[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
-                 cmap='RdBu_r')
-    axs[1][2].set_title('YZ projection (color: $S_x$)')
-    axs[1][2].set_aspect('equal')
+    # # YZ projection (colored by fx)
+    # axs[1][2].quiver(X[::skip, ::skip], Y[::skip, ::skip], 
+    #             fy[::skip, ::skip], fz[::skip, ::skip], 
+    #             fx[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
+    #              cmap='RdBu_r')
+    # axs[1][2].set_title('YZ projection (color: $S_x$)')
+    # axs[1][2].set_aspect('equal')
 
 
-    # 2. Color by spin direction (spherical angles)
-    # This is great for seeing domain structure
-    theta = cp.arccos(fz / (cp.sqrt(fx**2 + fy**2 + fz**2) + 1e-10))  # polar angle
-    phi = cp.arctan2(fy, fx)  # azimuthal angle
+    # # 2. Color by spin direction (spherical angles)
+    # # This is great for seeing domain structure
+    # theta = cp.arccos(fz / (cp.sqrt(fx**2 + fy**2 + fz**2) + 1e-10))  # polar angle
+    # phi = cp.arctan2(fy, fx)  # azimuthal angle
 
-    # Color by azimuthal angle (direction in xy-plane)
-    Q1 = axs[0][1].quiver(X[::skip, ::skip], Y[::skip, ::skip],
-                        fx[::skip, ::skip], fy[::skip, ::skip],
-                        phi[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
-                         cmap='hsv', 
-                        clim=(-cp.pi, cp.pi))
-    axs[0][1].set_title('Spin field (color: azimuthal angle)')
-    axs[0][1].set_aspect('equal')
-    plt.colorbar(Q1, ax=axs[0][1], label='$\\phi$')
+    # # Color by azimuthal angle (direction in xy-plane)
+    # Q1 = axs[0][1].quiver(X[::skip, ::skip], Y[::skip, ::skip],
+    #                     fx[::skip, ::skip], fy[::skip, ::skip],
+    #                     phi[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
+    #                      cmap='hsv', 
+    #                     clim=(-cp.pi, cp.pi))
+    # axs[0][1].set_title('Spin field (color: azimuthal angle)')
+    # axs[0][1].set_aspect('equal')
+    # plt.colorbar(Q1, ax=axs[0][1], label='$\\phi$')
 
-    # Color by polar angle (tilt from z-axis)
-    Q2 = axs[0][2].quiver(X[::skip, ::skip], Y[::skip, ::skip],
-                        fx[::skip, ::skip], fy[::skip, ::skip],
-                        theta[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
-                         cmap='viridis',clim=(0,cp.pi))
-    axs[0][2].set_title('Spin field (color: polar angle)')
-    axs[0][2].set_aspect('equal')
-    plt.colorbar(Q2, ax=axs[0][2], label='$\\theta$')
+    # # Color by polar angle (tilt from z-axis)
+    # Q2 = axs[0][2].quiver(X[::skip, ::skip], Y[::skip, ::skip],
+    #                     fx[::skip, ::skip], fy[::skip, ::skip],
+    #                     theta[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
+    #                      cmap='viridis',clim=(0,cp.pi))
+    # axs[0][2].set_title('Spin field (color: polar angle)')
+    # axs[0][2].set_aspect('equal')
+    # plt.colorbar(Q2, ax=axs[0][2], label='$\\theta$')
 
-    # 3. Overlay on spin magnitude or density
+    # # 3. Overlay on spin magnitude or density
 
-    # Background: spin magnitude
-    S_mag = cp.sqrt(fx**2 + fy**2 + fz**2)
-    im = axs[0][0].imshow(S_mag.T, extent=[xs[0], xs[-1], ys[0], ys[-1]], 
-                origin='lower', cmap='gray', alpha=0.6,clim=(0,2))
+    # # Background: spin magnitude
+    # S_mag = cp.sqrt(fx**2 + fy**2 + fz**2)
+    # im = axs[0][0].imshow(S_mag.T, extent=[xs[0], xs[-1], ys[0], ys[-1]], 
+    #             origin='lower', cmap='gray', alpha=0.6,clim=(0,2))
 
-    # Overlay: spin direction
-    Q = axs[0][0].quiver(X[::skip, ::skip], Y[::skip, ::skip],
-                fx[::skip, ::skip], fy[::skip, ::skip],
-                scale=0.2, scale_units='xy', angles='xy',
-                color='red', alpha=0.8, width=0.003)
+    # # Overlay: spin direction
+    # Q = axs[0][0].quiver(X[::skip, ::skip], Y[::skip, ::skip],
+    #             fx[::skip, ::skip], fy[::skip, ::skip],
+    #             scale=0.2, scale_units='xy', angles='xy',
+    #             color='red', alpha=0.8, width=0.003)
 
-    axs[0][0].set_xlabel('x')
-    axs[0][0].set_ylabel('y')
-    axs[0][0].set_title('Spin texture on |S| background')
-    axs[0][0].set_aspect('equal')
-    plt.colorbar(im, ax=axs[0][0], label='|S|')
+    # axs[0][0].set_xlabel('x')
+    # axs[0][0].set_ylabel('y')
+    # axs[0][0].set_title('Spin texture on |S| background')
+    # axs[0][0].set_aspect('equal')
+    # plt.colorbar(im, ax=axs[0][0], label='|S|')
 
     plt.tight_layout()
      
@@ -602,5 +603,5 @@ def createMovie( waveFunc, scalars:dict, movieName:str, chartType:str, titleElem
 
 
 if __name__ == '__main__':
-    movieFromFrames( 'tau_q=400TestGRADDENS.mp4', 'frames' )
+    movieFromFrames( 'initialSkyrme/TEST.mp4', 'frames' )
     

@@ -2,6 +2,7 @@ import pygpe.spinone as gpe
 import os
 import time
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 import pygpe.shared.vortices as vort
 from pygpe.spinone.relaxation import SpinorBECGroundState2D, Spinor
@@ -27,8 +28,8 @@ def getData( grid:gpe.Grid, params:dict, psi ) -> None:
     for i in range(params["nt"]):
         if i % percentages == 0 :
             print(f'{i//percentages}% ')
-        #     print( f'N = {np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 )}')
-        #     print( f'MagZ = {np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )}')
+            print( f'N = {np.sum(abs(system.waveFunctions[-1][1])**2 +abs(system.waveFunctions[-1][0])**2+ abs(system.waveFunctions[-1][-1])**2 )}')
+            print( f'MagZ = {np.sum(abs(system.waveFunctions[-1][1])**2 - abs(system.waveFunctions[-1][-1])**2 )}')
         
 
         # Evolve wavefunction
@@ -56,7 +57,14 @@ def hdf5ReadScalars( hdf5Obj, prepend:str='', makeUnique:bool=False ) -> dict:
     return resultsDict
 
 
-def skyrmionInitial( grid, coord1, coord2, radius, winding=1 ):
+def linearPhaseRotationZ( grid, x1, x2, rotation ):
+    m = rotation/(x2-x1)
+    c = -m*x1
+    linearOffset = m * grid.x_mesh + c
+    return linearOffset
+
+
+def skyrmionInitial( grid, coord1, coord2, radius, winding=1, rotation=0 ):
     
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     r2 = np.sqrt( (grid.x_mesh-coord2[0])**2 + (grid.y_mesh-coord2[1])**2 )
@@ -78,9 +86,11 @@ def skyrmionInitial( grid, coord1, coord2, radius, winding=1 ):
     phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
     phase2 = vort._calculate_vortex_contribution(grid, coord2[0],coord2[1], sgn(winding) ) 
     phaseTotal = phase1 + phase2
+    rotation = linearPhaseRotationZ( grid, coord1[0],coord2[0], rotation )
     # phaseTotal = removePhaseDiscontinuity( phaseTotal )
+    psi.apply_phase( -rotation, 'plus')
     psi.apply_phase( phaseTotal,['zero','minus'] )
-    psi.apply_phase( phaseTotal, 'minus' )
+    psi.apply_phase( phaseTotal+rotation, 'minus' )
     return psi
 
 def vortexPairInitial( grid, coord1, coord2 ):
@@ -101,7 +111,7 @@ def vortexPairInitial( grid, coord1, coord2 ):
     return psi
 
 
-def singleSkyrmion(grid, coord1, radius):
+def singleSkyrmion(grid, coord1, radius, rotation=0, charge=1):
     r1 = np.sqrt( (grid.x_mesh-coord1[0])**2 + (grid.y_mesh-coord1[1])**2 )
     beta1 = np.pi * (np.tanh( r1/radius ))
     # beta1 = np.pi * ( (np.sign(r1-radius/2)+1)/2 + (np.sign(r1-radius)+1)/2 )/2
@@ -113,10 +123,13 @@ def singleSkyrmion(grid, coord1, radius):
     psi = gpe.SpinOneWavefunction(grid)
     psi.set_wavefunction(plusComp,zeroComp,minusComp)
     phase1 = vort._calculate_vortex_contribution(grid, coord1[0],coord1[1],1)
-    phaseTotal = phase1 
+    phaseTotal = charge * phase1 
     # phaseTotal = removePhaseDiscontinuity( phaseTotal )
     psi.apply_phase( phaseTotal,['zero','minus'] )
     psi.apply_phase( phaseTotal, 'minus' )
+
+    psi.apply_phase( -rotation, 'plus' )
+    psi.apply_phase( rotation, 'minus' )
     return psi
 
 def harmonicPotential( grid, trapLength ):
@@ -263,9 +276,9 @@ def plotStructureFromFile( filename ):
     psi = file['wavefunction']
     scalars = hdf5ReadScalars( file )
 
-    psiPlus = psi['psi_plus'][:,:]
-    psiZero = psi['psi_zero'][:,:]
-    psiMinus = psi['psi_minus'][:,:]
+    psiPlus = psi['psi_plus'][-1,:,:]
+    psiZero = psi['psi_zero'][-1,:,:]
+    psiMinus = psi['psi_minus'][-1,:,:]
     halfXPoint = psiPlus.shape[0]//2
 
     radius = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']
@@ -274,16 +287,116 @@ def plotStructureFromFile( filename ):
     beta = np.arccos( cosBeta )
     radialBeta = beta[:, beta.shape[1]//2]
     p = np.sqrt(abs(scalars['lambda']))
-    m = corr.bestFitCurveError( lambda x, m: m*x , radius[halfXPoint:halfXPoint+10],radialBeta[halfXPoint:halfXPoint+10] )
-    a = corr.bestFitCurveError(lambda x, A: np.pi - A*np.exp(-p*x)/np.sqrt(x), radius[halfXPoint+10:], radialBeta[halfXPoint+10:]) 
+    m = corr.bestFitCurveError( lambda x, m: m*x , radius[halfXPoint:halfXPoint+5],radialBeta[halfXPoint:halfXPoint+5] )
+    a = corr.bestFitCurveError(lambda x, A: np.pi - A*np.exp(-p*x)/np.sqrt(x), radius[halfXPoint+5:], radialBeta[halfXPoint+5:]) 
     # r = corr.bestFitCurveError( lambda x, r: np.pi * np.tanh(x/r) ,radius[halfXPoint:-20], radialBeta[halfXPoint:-20])
     plt.plot( radius, radialBeta )
-    plt.plot( radius[halfXPoint:halfXPoint+10], radius[halfXPoint:halfXPoint+10]*m[0][0])
-    plt.plot( radius[halfXPoint+10:], np.pi - a[0][0] * ( np.exp(-p * radius[halfXPoint+10:] ) / np.sqrt(radius[halfXPoint+10:] ) ) )
+    plt.plot( radius[halfXPoint:halfXPoint+5], radius[halfXPoint:halfXPoint+5]*m[0][0])
+    plt.plot( radius[halfXPoint+5:], np.pi - a[0][0] * ( np.exp(-p * radius[halfXPoint+5:] ) / np.sqrt(radius[halfXPoint+5:] ) ) )
     # plt.plot( radius[halfXPoint:-20], np.pi * np.tanh(radius[halfXPoint:-20]/r[0][0]) )
     plt.hlines( np.pi, radius[0],radius[-1], colors=['k'])
     plt.legend(['Data',f'Linear Core {m[0][0]:.2f}r', fr'$\pi-{a[0][0]:.2f}exp(-{p:.2f}r)/\sqrt{{r}}$', fr'$\pi$'])
+    plt.xlabel('Distance')
+    plt.ylabel(r'Bending Angle ($\beta$)')
     plt.show()
+
+
+def plot_skyrmion(filename):
+    file = h5py.File( filename, 'r')
+    psi = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
+
+    psiPlus = psi['psi_plus'][-1,:,:]
+    psiZero = psi['psi_zero'][-1,:,:]
+    psiMinus = psi['psi_minus'][-1,:,:]
+
+    xs = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']   
+    ys = np.arange( -scalars['ny']//2, scalars['ny']//2 ) * scalars['dy']   
+    xMesh, yMesh = np.meshgrid( xs, ys, indexing='ij' )
+    rx = (xMesh.max() - xMesh.min()) / 2 * 0.25
+    ry = (yMesh.max() - yMesh.min()) / 2 * 0.25
+
+    spinZ = np.array( abs( psiPlus )**2 - abs( psiMinus )**2 )
+    spinX = np.array(np.conj(psiPlus+psiMinus)*psiZero 
+                            + np.conj(psiZero)*(psiPlus+psiMinus))/np.sqrt(2)
+    spinY = 1j*np.array(np.conj(-psiPlus+psiMinus)*psiZero 
+                            + np.conj(psiZero)*(psiPlus-psiMinus))/np.sqrt(2)
+
+
+    step = 2
+    xs_sub = xs[::step]
+    ys_sub = ys[::step]
+    xMesh_sub, yMesh_sub = np.meshgrid(xs_sub, ys_sub, indexing='ij')
+
+    spinX_sub = spinX[::step, ::step]
+    spinY_sub = spinY[::step, ::step]
+    spinZ_sub = spinZ[::step, ::step]
+
+    zScale = 0.3
+
+    mask = (xMesh_sub**2 / (rx)**2 + yMesh_sub**2 / (ry)**2) <= 1.0
+    Xm = xMesh_sub[mask]
+    Ym = yMesh_sub[mask]
+    Zm = np.zeros_like(Xm)
+    Um = spinX_sub[mask].real
+    Vm = spinY_sub[mask].real
+    Wm = spinZ_sub[mask].real
+
+    norm = np.sqrt(abs(Um)**2 + abs(Vm)**2 + abs(Wm)**2 )
+    Um /= norm
+    Vm /= norm
+    Wm /= norm
+
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot( projection='3d')
+
+    
+    cmap = plt.cm.brg
+    norm = mcolors.Normalize(vmin=-1, vmax=1)
+    colors = cmap(norm(Wm))                          
+    
+    q = ax.quiver(Xm, Ym, Zm, Um, Vm, Wm,
+                  length=0.5, normalize=True,
+                  arrow_length_ratio=0.6,
+                  linewidth=2.5)
+
+    fig.canvas.draw()
+    q.set_color(colors)
+
+    # ax.set_xlim(-6, 6)
+    # ax.set_ylim(-6, 6)
+    ax.set_zlim(-1/zScale, 1/zScale)
+    ax.set_box_aspect([1, 1, 1])
+    # ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+    ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+def plotSpeedComparison(filename):
+    file = h5py.File( filename, 'r')
+    psi = file['wavefunction']
+    scalars = hdf5ReadScalars( file )
+
+    psiPlus = psi['psi_plus'][-1,:,:]
+    psiZero = psi['psi_zero'][-1,:,:]
+    psiMinus = psi['psi_minus'][-1,:,:]
+
+    halfXPoint = psiPlus.shape[0]//2
+
+    radius = np.arange( -scalars['nx']//2, scalars['nx']//2 ) * scalars['dx']
+
+    cosBeta = (abs(psiPlus)**2 - abs(psiMinus)**2)/(abs(psiPlus)**2 + abs(psiZero)**2 + abs(psiMinus)**2)
+    beta = np.arccos( cosBeta )
+    radialBeta = beta[:, beta.shape[1]//2]
+    skyrmionVelocity = np.nan_to_num( 2 * np.sin( radialBeta[halfXPoint:]/2 )**2 /radius[halfXPoint:], posinf=0 )
+    plt.plot( radius[halfXPoint:], skyrmionVelocity )
+    plt.plot( radius[halfXPoint+1:], 2 / radius[halfXPoint+1:] )
+    plt.legend(['Coreless vortex', 'Q=2 Polar core vortex'])
+    plt.xlabel('Radius')
+    plt.ylabel('Superfluid Velocity')
+    plt.show()
+
+
 
 def createFilmFromFile(filePath, filmName, frames_dir, filmType='ALL_COMP' ):
     file = h5py.File( filePath, 'r')
@@ -395,6 +508,42 @@ def createFilmFromFile(filePath, filmName, frames_dir, filmType='ALL_COMP' ):
                                         curlZ,
                                          vmin=-0.1, vmax=0.1 )
                 fig.colorbar( curlPlot )
+            
+            case 'QUIVER':
+                spinZ = np.array( abs( psiPlus[frame,:,:] )**2 - abs( psiMinus[frame,:,:] )**2 )
+                spinX = np.array(np.conj(psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]+psiMinus[frame,:,:]))/np.sqrt(2)
+                spinY = 1j*np.array(np.conj(-psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]-psiMinus[frame,:,:]))/np.sqrt(2)
+
+                fig, ax = plt.subplots(figsize=(6, 6))
+                skip = 4
+                ax.quiver(xMesh[::skip, ::skip], yMesh[::skip, ::skip], 
+                spinX[::skip, ::skip], spinY[::skip, ::skip], 
+                spinZ[::skip, ::skip], scale=0.2, scale_units='xy', angles='xy',
+                 cmap='RdBu_r')
+                ax.set_title('XY projection (color: $S_z$)')
+                ax.set_aspect('equal')
+            case 'KINETIC':
+                fig,ax = plt.subplots(1,1,figsize=(6,6))
+                spinZ = np.array( abs( psiPlus[frame,:,:] )**2 - abs( psiMinus[frame,:,:] )**2 )
+                spinX = np.array(np.conj(psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]+psiMinus[frame,:,:]))/np.sqrt(2)
+                spinY = 1j*np.array(np.conj(-psiPlus[frame,:,:]+psiMinus[frame,:,:])*psiZero[frame,:,:] 
+                            + np.conj(psiZero[frame,:,:])*(psiPlus[frame,:,:]-psiMinus[frame,:,:]))/np.sqrt(2)
+    
+                spinVector = np.array([spinX.real, spinY.real, spinZ.real])
+
+                xx,xy = np.gradient(spinX.real)
+                yx,yy = np.gradient(spinY.real)
+                zx,zy = np.gradient(spinZ.real)
+                kineticPlot = ax.pcolormesh(
+                                        (xMesh),
+                                        (yMesh),
+                                        xx*xx + yx*yx + zx*zx + xy*xy + yy*yy + zy*zy,
+                                         vmin=0, vmax=1 )
+                fig.colorbar( kineticPlot )
+
 
         plt.savefig(frame_path)
 
@@ -403,7 +552,7 @@ def createFilmFromFile(filePath, filmName, frames_dir, filmType='ALL_COMP' ):
     ani.movieFromFrames( filmName, frames_dir )
 
 
-def main():
+def main(fileName):
 
     power2 = 7
     # Generate grid object
@@ -421,7 +570,7 @@ def main():
         "trap": circularTrap,
         # Time params
         "dt": (1) * 1e-2,
-        "nt": 1_000,
+        "nt": 1000,
         "t":0,
         'n0':1,
         'nx':points[0],
@@ -431,8 +580,11 @@ def main():
         'frameRate': 10
     }
 
-    psi = skyrmionInitial( grid, (10,0), (-10,0), 5, winding=1 )
-    # psi = singleSkyrmion( grid, (0,0), 5 )
+    distance = 20
+    psi = skyrmionInitial( grid, (distance/2,0), (-distance/2,0), 5, winding=1 )
+    # psi = singleSkyrmion( grid, (0,0), 12, charge=5 )
+
+    # psi.set_wavefunction(0,1,0)
 
     psi.add_noise("all", 0.0, 1e-4)
     psi.plus_component[params['trap'] != 0] = 0 
@@ -448,18 +600,22 @@ def main():
 
     print(f'Evolution of {params["nt"]} steps took {time.time() - start_time}!')
 
-    magFilm( spinors, params, 'initialSkyrme/dualSkyrmionImagTimeExtraMag.mp4', 'frames', frameRate=params['frameRate'] )
+    # magFilm( spinors, params, 'initialSkyrme/dualSkyrmionImagTimeExtraMag.mp4', 'frames', frameRate=params['frameRate'] )
 
         # radialFilm( spinors, params, 'initialSkyrme/imagTanhRad.mp4', 'frames')
 
     filePath = 'dataInitialSkyrme'
     os.makedirs(filePath, exist_ok=True )
-    extractStructure( spinors, params, filePath + '/dualSkyrmionImagTimeExtra.hdf5', frameRate=params['frameRate'] )
+    extractStructure( spinors, params, filePath + f'/{fileName}', frameRate=params['frameRate'] )
 
 
     
 
 if __name__ == '__main__':
-    main()
-    # plotStructureFromFile('dataInitialSkyrme/dualSkyrmionImagTimeExtra.hdf5')
-    createFilmFromFile('dataInitialSkyrme/dualSkyrmionImagTimeExtra.hdf5', 'initialSkyrme/dualSkyrmionImagTimeExtraAllComp.mp4.mp4', 'frames', 'ALL_COMP')
+    name = 'singleSkyrmionR=4'
+    fileName = name + '.hdf5'
+    # main(fileName)
+    # plotStructureFromFile('dataInitialSkyrme/singleSkyrmionR=3.hdf5')
+    plotSpeedComparison('dataInitialSkyrme/'+fileName)
+    # plot_skyrmion('dataInitialSkyrme/singleSkyrmionR=6.hdf5')
+    # createFilmFromFile(f'dataInitialSkyrme/{name}.hdf5', f'initialSkyrme/{name}AllComp.mp4', 'frames', 'ALL_COMP')
