@@ -354,80 +354,289 @@ class SpinorBECGroundState2D():
 
         return ( np.sum( gradTermD + trapTermD + posIndependentTermD ), np.sum( gradTermF + trapTermF + posIndependentTermF ) )
 
-    def verify_D_F(self):
-        psiPrevious = self.waveFunctions[-1]
-        psiCurrent = self.trialWavefunctions[-1]
-        psiHalf = Spinor(*[0.5*(psiPrevious[j] + psiCurrent[j]) for j in [2,1,0,-1,-2]])
-        
-        # Method 1: your existing compute_D_F
-        # d1, f1 = self.compute_D_F(psiCurrent, psiPrevious, psiHalf)
-        
-        # Method 2: direct inner product with nonLinearCalc (mu=0, lam=0)
-        rhs = self.nonLinearCalc(0, 0)
-        
-        d2 = sum(np.sum((np.conj(psiHalf[m]) * rhs[m]).real) for m in [2,1,0,-1,-2])
-        f2 = sum(m * np.sum((np.conj(psiHalf[m]) * rhs[m]).real) for m in [2,1,0,-1,-2])
-        
-        # print(f"D: compute_D_F={d1:.6f}, inner product={d2:.6f}, diff={abs(d1-d2):.2e}")
-        # print(f"F: compute_D_F={f1:.6f}, inner product={f2:.6f}, diff={abs(f1-f2):.2e}")
 
-        return (-d2,-f2)
+
+
+
+class SpinorBECGroundState3D():
+    def __init__(self, grid, params,  psi ):
+        """
+        Parameters:
+        -----------
+        grid : 3D Grid object
+        params : dict with 'c0', 'c2', 'c4', 'trap', 'dt', 'q'
+        psi : Spinor Object
+        """
+        self.grid                             = grid
+        self.params:dict                      = params
+        self.dx:float                         = grid.grid_spacing_x
+        self.dy:float                         = grid.grid_spacing_y
+        self.dz:float                         = grid.grid_spacing_z
+        self.dt:float                         = params['dit'] if 'dit' in params.keys() else params['dt']
+        self.waveFunctions: list[Spinor]      = [ psi ] # This will be the actual results over time
+        self.trialWavefunctions: list[Spinor] = [] # This is a helper list
+        self.tolerance: float                 = 1e-6
+        
+        # Stabilization parameters (tune these!)
+        self.alpha2:float       = 0
+        self.alpha1:float       = 0
+        self.alpha0:float       = 0
+        self.alpha_minus1:float = 0
+        self.alpha_minus2:float = 0
+
+        self.intDebug = False 
+        self.gradDebug = False
+
+        nx = self.grid.shape[0]
+        ny = self.grid.shape[1]
+        nz = self.grid.shape[2]
+
+        circulantRow               = np.zeros((nx*ny*nz))
+        circulantRow[0]            = 1/self.dt
+        circulantRow[1]            = 1/(2*self.dx**2)
+        circulantRow[nx]           = 1/(2*self.dy**2)
+        circulantRow[nx*(ny-1)]    = 1/(2*self.dy**2)
+        circulantRow[nx*ny]        = 1/(2*self.dz**2)
+        circulantRow[nx*ny*(nz-1)] = 1/(2*self.dz**2)
+        circulantRow[-1]           = 1/(2*self.dx**2) #We can approximate the boundary conditions as circulant, which is very similar but not quite periodic
+
+        self.inverse = np.fft.ifft( np.diag( 1 / np.fft.fft( circulantRow ) )  ) #Contains all information of the inverse
+
+    def fullStep( self ):
+        self.trialWavefunctions = [self.waveFunctions[-1]]
+        self.nonlinearStep()
+        while abs( self.trialWavefunctions[-2] - self.trialWavefunctions[-1] ) > self.tolerance:
+            self.nonlinearStep()
+
+        self.waveFunctions.append( self.trialWavefunctions[-1] )
     
-    def diagnose_offdiagonal(self):
+    def nonlinearStep( self ):
+        # Crank-Nicolson iteration
+        psiPrevious = self.waveFunctions[-1]
+
+        mu, lam = self.computeChemicalPotentials()
+        vector = self.nonLinearCalc( mu, lam )
+        # Now add the gradient and time dependent terms to the vector
+
+        spaceTimeVector = Spinor( *[(( 1/self.dt - 1/(2*self.dx**2) - 1/(2*self.dy**2) - 1/(2*self.dz**2) ) * psiPrevious[j] + 
+                            1/(4*self.dx**2) * ( np.roll(psiPrevious[j], 1, axis=0 ) + np.roll(psiPrevious[j], -1, axis=0 ) ) +  
+                            1/(4*self.dy**2) * ( np.roll(psiPrevious[j], 1, axis=1 ) + np.roll(psiPrevious[j], -1, axis=1 ) ) +
+                            1/(4*self.dz**2) * ( np.roll(psiPrevious[j], 1, axis=2 ) + np.roll(psiPrevious[j], -1, axis=2 ) )
+                            ) for j in [2, 1, 0, -1, -2]] )
+        
+        if self.intDebug:
+            spaceTimeVector = Spinor(*[ 1/self.dt * psiPrevious[j] for j in [2,1,0,-1,-2]])
+
+        constantPlus2 = vector[2] + spaceTimeVector[2] # A bug in flattening this maybe?
+        constantPlus1 = vector[1] + spaceTimeVector[1]
+        constantZero = vector[0] + spaceTimeVector[0]
+        constantMinus1 = vector[-1] + spaceTimeVector[-1]
+        constantMinus2 = vector[-2] + spaceTimeVector[-2]
+
+        # nx = self.grid.shape[0]
+        # ny = self.grid.shape[1]
+        # nz = self.grid.shape[2]
+        # # If i make dy large, the error seems to reduce significantly, i dont get the same with dx and dz?
+
+        # shapeNum = nx * ny * nz
+
+        # nzDiag = [-1/(4*self.dz**2)]*nx*ny*(nz-1) # nz-1 comes from the top and bottom planes dont have another plane next to them 
+        # nyDiag = ( [-1/(4*self.dy**2)] * nx * (ny-1) + ([0]*nx) ) * nz
+        # nxDiag = ([-1/(4*self.dx**2)]*(nx-1) + [0]) * ny * nz 
+
+
+        # matrixPlus2 = diags( [ [self.alpha2 + 1/(self.dt) + 1/(2*self.dx**2) + 1/(2*self.dy**2) + 1/(2*self.dz**2)]*shapeNum, nxDiag, nxDiag, nyDiag, nyDiag, nzDiag, nzDiag], 
+        #                         [0, 1 , -1, nx, -nx, nx*ny, -nx*ny ], shape = (shapeNum,shapeNum), format='csr' ) # Im sure this constructed diagonals is correct
+        
+        # if self.intDebug:
+        #     matrixPlus2 = diags([ [self.alpha1 + 1/(self.dt) ]*shapeNum, ], 
+        #                         [0], shape = (shapeNum,shapeNum), format='csr') 
+
+        # #TODO May need to swap to order='F' for non cubic or non square arrays, im not sure
+        # newPlus2 = spsolve( matrixPlus2, constantPlus2.flatten() ).reshape(self.grid.shape)
+
+        # matrixPlus1 = diags( [ [self.alpha1 + 1/(self.dt) +1/(2*self.dx**2) + 1/(2*self.dy**2)+ 1/(2*self.dz**2)]*shapeNum, nxDiag, nxDiag, nyDiag, nyDiag, nzDiag, nzDiag], 
+        #                         [0, 1 , -1, nx, -nx, nx*ny, -nx*ny ], shape = (shapeNum,shapeNum), format='csr' )
+        
+        # if self.intDebug:
+        #     matrixPlus1 = diags([ [self.alpha1 + 1/(self.dt) ]*shapeNum, ], 
+        #                         [0], shape = (shapeNum,shapeNum), format='csr')
+        
+        # newPlus1 = spsolve( matrixPlus1, constantPlus1.flatten() ).reshape(self.grid.shape)
+
+        # matrixZero = diags( [ [self.alpha0 + 1/(self.dt) + 1/(2*self.dx**2) + 1/(2*self.dy**2)+ 1/(2*self.dz**2) ]*shapeNum, nxDiag, nxDiag, nyDiag, nyDiag, nzDiag, nzDiag], 
+        #                         [0, 1 , -1, nx, -nx, nx*ny, -nx*ny ], shape = (shapeNum,shapeNum), format='csr'  )
+        # if self.intDebug:
+        #     matrixZero = diags([ [self.alpha1 + 1/(self.dt) ]*shapeNum, ], 
+        #                         [0], shape = (shapeNum,shapeNum), format='csr')
+        # newZero = spsolve( matrixZero, constantZero.flatten() ).reshape(self.grid.shape)
+
+        # matrixMinus1 = diags( [ [self.alpha_minus1 + 1/(self.dt) +1/(2*self.dx**2) + 1/(2*self.dy**2)+ 1/(2*self.dz**2)]*shapeNum, nxDiag, nxDiag, nyDiag, nyDiag, nzDiag, nzDiag], 
+        #                         [0, 1 , -1, nx, -nx, nx*ny, -nx*ny ], shape = (shapeNum,shapeNum), format='csr'  )
+        
+        # if self.intDebug:
+        #     matrixMinus1 = diags([ [self.alpha1 + 1/(self.dt) ]*shapeNum, ], 
+        #                         [0], shape = (shapeNum,shapeNum), format='csr')
+        
+        # newMinus1 = spsolve( matrixMinus1, constantMinus1.flatten() ).reshape(self.grid.shape)
+
+        # matrixMinus2 = diags( [ [self.alpha_minus2 + 1/(self.dt) +1/(2*self.dx**2) + 1/(2*self.dy**2)+ 1/(2*self.dz**2)]*shapeNum, nxDiag, nxDiag, nyDiag, nyDiag, nzDiag, nzDiag], 
+        #                         [0, 1 , -1, nx, -nx, nx*ny, -nx*ny ], shape = (shapeNum,shapeNum), format='csr'  )
+        
+        # if self.intDebug:
+        #     matrixMinus2 = diags([ [self.alpha1 + 1/(self.dt) ]*shapeNum, ], 
+        #                         [0], shape = (shapeNum,shapeNum), format='csr')
+        
+        # newMinus2 = spsolve( matrixMinus2, constantMinus2.flatten() ).reshape(self.grid.shape)
+
+        newPlus2 = ( self.inverse @ constantPlus2 ).reshape(self.grid.shape)
+        newPlus1 = ( self.inverse @ constantPlus1 ).reshape(self.grid.shape)
+        newZero = ( self.inverse @ constantZero ).reshape(self.grid.shape)
+        newMinus1 = ( self.inverse @ constantMinus1 ).reshape(self.grid.shape)
+        newMinus2 = ( self.inverse @ constantMinus2 ).reshape(self.grid.shape)
+
+        self.trialWavefunctions.append( Spinor( newPlus2, newPlus1, newZero, newMinus1, newMinus2 ) )
+
+
+    def nonLinearCalc( self, mu, lam ):
         psiPrevious = self.waveFunctions[-1]
         psiCurrent = self.trialWavefunctions[-1]
-        psiHalf = Spinor(*[0.5*(psiPrevious[j] + psiCurrent[j]) for j in [2,1,0,-1,-2]])
+        psiHalf = Spinor( *[ 0.5*(psiPrevious[j] + psiCurrent[j]) for j in [2, 1, 0, -1, -2]] )
 
-        # Off-diagonal c2 terms for each component, taken directly from nonLinearCalc
-        offdiag_plus2  = -self.params['c2']/2 * (psiCurrent.localMagMinus() + psiPrevious.localMagMinus()) * psiHalf[1]
-        
-        offdiag_plus1  = -self.params['c2']/2 * (
-                            np.sqrt(6)/2 * (psiCurrent.localMagMinus() + psiPrevious.localMagMinus()) * psiHalf[0]
-                        + (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) * psiHalf[2]
-                        )
-        
-        offdiag_zero   = -self.params['c2']*np.sqrt(6)/4 * (
-                            (psiCurrent.localMagMinus() + psiPrevious.localMagMinus()) * psiHalf[-1]
-                        + (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) * psiHalf[1]
-                        )
-        
-        offdiag_minus1 = -self.params['c2']/2 * (
-                            np.sqrt(6)/2 * (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) * psiHalf[0]
-                        + (psiCurrent.localMagMinus() + psiPrevious.localMagMinus()) * psiHalf[-2]
-                        )
-        
-        offdiag_minus2 = -self.params['c2']/2 * (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) * psiHalf[-1]
+        psiPlus2 = ( self.alpha2 * psiCurrent[2]
+                    - self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf[2]
+                    - self.params['c2'] * (psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf[2]
+                    - ( self.params['trap'] + 4 * self.params['q'] ) * psiHalf[2]
+                    - self.params['c2']/2 * (psiCurrent.localMagMinus() + psiPrevious.localMagMinus()) * psiHalf[1]
+                    - self.params['c4']/(2*np.sqrt(5))  * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet() )* np.conj(psiHalf[-2])
+                    + ( mu + 2 * lam ) * psiHalf[2]
+                )
 
-        # Inner product of psiHalf_m with its off-diagonal term
-        contrib_plus2  = np.sum((np.conj(psiHalf[2])  * offdiag_plus2).real)
-        contrib_plus1  = np.sum((np.conj(psiHalf[1])  * offdiag_plus1).real)
-        contrib_zero   = np.sum((np.conj(psiHalf[0])  * offdiag_zero).real)
-        contrib_minus1 = np.sum((np.conj(psiHalf[-1]) * offdiag_minus1).real)
-        contrib_minus2 = np.sum((np.conj(psiHalf[-2]) * offdiag_minus2).real)
-
-        offDiag_D = np.sum( self.params['c2']/4 * ( (psiCurrent.localMagPlus() + psiPrevious.localMagPlus() ) * psiHalf.localMagMinus() 
-                                                                +  (psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) * psiHalf.localMagPlus() ) ).real
-        offDiag_F = self.params['c2']/2 * np.sum( (
-                                   (psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) 
-                                 * (2*np.conj(psiHalf[2])*psiHalf[1] + np.sqrt(6)/2 * np.conj(psiHalf[1])*psiHalf[0] - np.conj(psiHalf[-1])*psiHalf[-2] )
-                                 + (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) 
-                                 * (np.conj(psiHalf[1])*psiHalf[2] - np.sqrt(6)/2 * np.conj(psiHalf[-1])*psiHalf[0] - 2 * np.conj(psiHalf[-2])*psiHalf[-1] ) ).real  )
-
-        print(f"off-diag contributions to D:")
-        print(f"  m=+2: {contrib_plus2:.6e}")
-        print(f"  m=+1: {contrib_plus1:.6e}")
-        print(f"  m= 0: {contrib_zero:.6e}")
-        print(f"  m=-1: {contrib_minus1:.6e}")
-        print(f"  m=-2: {contrib_minus2:.6e}")
-        print(f"  total: {contrib_plus2+contrib_plus1+contrib_zero+contrib_minus1+contrib_minus2:.6e}")
-        print(f" D: {offDiag_D}")
+        psiPlus1 = ( self.alpha1 * psiCurrent[1]
+                    - self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf[1]
+                    - self.params['c2']/2 * (psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf[1]
+                    - ( self.params['trap'] +  self.params['q'] ) * psiHalf[1]
+                    - self.params['c2']/2 *( np.sqrt(6)/2 * ( psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) * psiHalf[0] 
+                                            + ( psiCurrent.localMagPlus() + psiPrevious.localMagPlus() ) * psiHalf[2] )
+                    + self.params['c4']/(2*np.sqrt(5))  * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet())* np.conj(psiHalf[-1])
+                    + ( mu + lam ) * psiHalf[1]
+                )
+        psiZero = ( self.alpha0 * psiCurrent[0]
+                    - self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf[0]
+                    - ( self.params['trap'] ) * psiHalf[0]
+                    - self.params['c2']*np.sqrt(6)/4 *( ( psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) * psiHalf[-1] 
+                                            + ( psiCurrent.localMagPlus() + psiPrevious.localMagPlus() ) * psiHalf[1] )
+                    - self.params['c4']/(2*np.sqrt(5))  * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet())* np.conj(psiHalf[0])
+                    + mu  * psiHalf[0]
+                )
+        psiMinus1 = ( self.alpha_minus1 * psiCurrent[-1]
+                    - self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf[-1]
+                    + self.params['c2']/2 * (psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf[-1]
+                    - ( self.params['trap'] + self.params['q'] ) * psiHalf[-1]
+                    - self.params['c2']/2 *( np.sqrt(6)/2 * ( psiCurrent.localMagPlus() + psiPrevious.localMagPlus() ) * psiHalf[0] 
+                                            + ( psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) * psiHalf[-2] )
+                    + self.params['c4']/(2*np.sqrt(5))  * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet())* np.conj(psiHalf[1])
+                    + ( mu - lam ) * psiHalf[-1]
+                )
+        psiMinus2 = ( self.alpha_minus2 * psiCurrent[-2]
+                    - self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf[-2]
+                    + self.params['c2'] * (psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf[-2]
+                    - ( self.params['trap'] + 4 * self.params['q'] ) * psiHalf[-2]
+                    - self.params['c2']/2 * (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) * psiHalf[-1]
+                    - self.params['c4']/(2*np.sqrt(5))  * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet())* np.conj(psiHalf[2])
+                    + ( mu - 2 * lam ) * psiHalf[-2]
+                )
         
-        # Same but m-weighted for F
-        print(f"off-diag contributions to F:")
-        print(f"  m=+2: {2*contrib_plus2:.6e}")
-        print(f"  m=+1: {1*contrib_plus1:.6e}")
-        print(f"  m= 0: {0*contrib_zero:.6e}")
-        print(f"  m=-1: {-1*contrib_minus1:.6e}")
-        print(f"  m=-2: {-2*contrib_minus2:.6e}")
-        print(f"  total: {2*contrib_plus2+contrib_plus1-contrib_minus1-2*contrib_minus2:.6e}")
-        print(f" F: {offDiag_F}")
+        
+        if self.gradDebug:
+            return Spinor( self.alpha2 * psiCurrent[2] + (mu + 2 * lam) * psiHalf[2],
+                            self.alpha1 * psiCurrent[1] + (mu + lam)*psiHalf[1], 
+                            self.alpha0 * psiCurrent[0] + mu * psiHalf[0], 
+                            self.alpha_minus1 * psiCurrent[-1] + (mu - lam)*psiHalf[-1],
+                            self.alpha_minus2 * psiCurrent[-2] + (mu - 2 * lam) * psiHalf[-2] )
+
+        return Spinor( psiPlus2, psiPlus1, psiZero, psiMinus1, psiMinus2 )
+
+    def computeChemicalPotentials(self):
+        """
+        Compute μ and λ, The chemical and magnetic potentials
+        These ensure mass and magnetization conservation
+        """
+        psiPrevious = self.waveFunctions[-1]
+        psiCurrent = self.trialWavefunctions[-1]
+
+        psiHalf = Spinor( *[0.5*(psiPrevious[j] + psiCurrent[j]) for j in [2, 1, 0, -1, -2]] )
+        
+        
+        nHalf = psiHalf.number()
+        mHalf = psiHalf.mag()
+        rHalf = psiHalf.zeeman()
+        dHalf, fHalf = self.compute_D_F(psiCurrent, psiPrevious, psiHalf)
+        # dHalf, fHalf = self.verify_D_F()
+        
+        denom = nHalf * rHalf - mHalf**2
+        if denom == 0:
+            return 0, 0
+        
+        mu = (rHalf * dHalf - mHalf * fHalf) / denom
+        lam = (nHalf * fHalf - mHalf * dHalf) / denom
+        
+        return mu, lam
+    
+    def compute_D_F( self, psiCurrent, psiPrevious, psiHalf ):
+
+        posIndependentTermD = ( 
+                                self.params['c0']/2 * (psiCurrent.localNumber() + psiPrevious.localNumber() )* psiHalf.localNumber()
+                                + self.params['c2']/2 * ( psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf.localMag() 
+                                + self.params['q'] * ( 4 * abs(psiHalf[2])**2 + abs(psiHalf[1])**2 + abs(psiHalf[-1])**2 + 4 * abs(psiHalf[-2])**2 )
+                                + (
+                                    self.params['c2']/4 * ( (psiCurrent.localMagPlus() + psiPrevious.localMagPlus() ) * psiHalf.localMagMinus() 
+                                                                +  (psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) * psiHalf.localMagPlus() )
+                                + self.params['c4']/2 * (psiCurrent.localSpinSinglet() + psiPrevious.localSpinSinglet() ) * np.conj( psiHalf.localSpinSinglet() ) 
+                                ).real )
+        
+        rolledSpinorX = Spinor( np.roll(psiHalf[2],1,axis=0), np.roll(psiHalf[1],1,axis=0), np.roll(psiHalf[0],1,axis=0), 
+                                np.roll(psiHalf[-1],1,axis=0), np.roll(psiHalf[-2],1,axis=0) )
+        
+        rolledSpinorY = Spinor( np.roll(psiHalf[2],1,axis=1), np.roll(psiHalf[1],1,axis=1), np.roll(psiHalf[0],1,axis=1), 
+                                np.roll(psiHalf[-1],1,axis=1), np.roll(psiHalf[-2],1,axis=1) )
+
+        rolledSpinorZ = Spinor( np.roll(psiHalf[2],1,axis=2), np.roll(psiHalf[1],1,axis=2), np.roll(psiHalf[0],1,axis=2), 
+                                        np.roll(psiHalf[-1],1,axis=2), np.roll(psiHalf[-2],1,axis=2) )
+
+        gradTermD = ( (1/(2*self.dx**2))*( abs(rolledSpinorX[2]-psiHalf[2])**2 + abs(rolledSpinorX[1]-psiHalf[1])**2 + abs(rolledSpinorX[0]-psiHalf[0])**2 
+                                            + abs(rolledSpinorX[-1]-psiHalf[-1])**2 + abs(rolledSpinorX[-2]-psiHalf[-2])**2  )
+                        + (1/(2*self.dy**2))*( abs(rolledSpinorY[2]-psiHalf[2])**2+ abs(rolledSpinorY[1]-psiHalf[1])**2 + abs(rolledSpinorY[0]-psiHalf[0])**2 
+                                            + abs(rolledSpinorY[-1]-psiHalf[-1])**2 + abs(rolledSpinorY[-2]-psiHalf[-2])**2)
+                        + (1/(2*self.dz**2))*( abs(rolledSpinorZ[2]-psiHalf[2])**2+ abs(rolledSpinorZ[1]-psiHalf[1])**2 + abs(rolledSpinorZ[0]-psiHalf[0])**2 
+                                            + abs(rolledSpinorZ[-1]-psiHalf[-1])**2 + abs(rolledSpinorZ[-2]-psiHalf[-2])**2) )
+
+        trapTermD = self.params['trap'] * psiHalf.localNumber()
+
+        posIndependentTermF = ( 
+                                self.params['c0']/2 * ( psiCurrent.localNumber() + psiPrevious.localNumber() ) * psiHalf.localMag()
+                                + self.params['c2']/2 * ( psiCurrent.localMag() + psiPrevious.localMag() ) * psiHalf.localZeeman()
+                                + self.params['q'] * ( 8 * abs(psiHalf[2])**2 + abs(psiHalf[1])**2 - abs(psiHalf[-1])**2 - 8 * abs(psiHalf[-2])**2 )
+                                    + self.params['c2']/2 * ( 
+                                    (psiCurrent.localMagMinus() + psiPrevious.localMagMinus() ) 
+                                    * (2*np.conj(psiHalf[2])*psiHalf[1] + np.sqrt(6)/2 * np.conj(psiHalf[1])*psiHalf[0] - np.conj(psiHalf[-1])*psiHalf[-2] )
+                                    + (psiCurrent.localMagPlus() + psiPrevious.localMagPlus()) 
+                                    * (np.conj(psiHalf[1])*psiHalf[2] - np.sqrt(6)/2 * np.conj(psiHalf[-1])*psiHalf[0] - 2 * np.conj(psiHalf[-2])*psiHalf[-1] ) ).real  
+                                    )
+
+        gradTermF =  ( (1/(2*self.dx**2))*( 2 * abs(rolledSpinorX[2]-psiHalf[2])**2 + abs(rolledSpinorX[1]-psiHalf[1])**2 
+                                            - (abs(rolledSpinorX[-1]-psiHalf[-1])**2 + 2 * abs(rolledSpinorX[-2]-psiHalf[-2])**2)  ) + 
+                        (1/(2*self.dy**2))*( 2* abs(rolledSpinorY[2]-psiHalf[2])**2 + abs(rolledSpinorY[1]-psiHalf[1])**2 
+                                            - ( abs(rolledSpinorY[-1]-psiHalf[-1])**2 + 2 * abs(rolledSpinorY[-2]-psiHalf[-2])**2 ) ) +
+                        (1/(2*self.dz**2))*( 2* abs(rolledSpinorZ[2]-psiHalf[2])**2 + abs(rolledSpinorZ[1]-psiHalf[1])**2 
+                                            - ( abs(rolledSpinorZ[-1]-psiHalf[-1])**2 + 2 * abs(rolledSpinorZ[-2]-psiHalf[-2])**2 ) ) ) 
+
+        trapTermF = self.params['trap'] * psiHalf.localMag() 
+
+        if self.gradDebug:
+            return ( np.sum( gradTermD ), np.sum( gradTermF ) )
+        
+        if self.intDebug:
+            return ( np.sum( posIndependentTermD + trapTermD ), np.sum( posIndependentTermF + trapTermF ) )
+
+        return ( np.sum( gradTermD + trapTermD + posIndependentTermD ), np.sum( gradTermF + trapTermF + posIndependentTermF ) )
