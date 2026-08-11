@@ -66,6 +66,8 @@ class Spinor():
     def __abs__(self):
         return np.sum( abs( self.plus )**2 + abs( self.zero )**2  + abs( self.minus ) ** 2 )
     
+    def number(self):
+        return np.sum( abs( self[1] )**2 + abs( self[0] )**2  + abs( self[-1] )**2   )
     
     def mag(self):
         return np.sum(  abs( self.plus )**2 - abs( self.minus ) ** 2 )
@@ -76,7 +78,7 @@ class Spinor():
 
 class SpinorBECGroundState2D():
     
-    def __init__(self, grid, params,  psi ):
+    def __init__(self, grid, params,  psi, tolerance=1e-12 ):
         """
         Parameters:
         -----------
@@ -91,7 +93,7 @@ class SpinorBECGroundState2D():
         self.dt:float                         = params['dit'] if 'dit' in params.keys() else params['dt']
         self.waveFunctions: list[Spinor]      = [ psi ] # This will be the actual results over time
         self.trialWavefunctions: list[Spinor] = [] # This is a helper list
-        self.tolerance: float                 = 1e-12
+        self.tolerance: float                 = tolerance
         
         # Stabilization parameters (tune these!)
         self.alpha1:float       = 0
@@ -175,6 +177,7 @@ class SpinorBECGroundState2D():
             - ( self.params['c0'] - self.params['c2'])/2 * psiDiffTerm[1] * psiHalf[1] 
             - (self.params['c0'] + self.params['c2'])/2 * psiSumTerm[1] * psiHalf[1] 
             - self.params['trap'] * psiHalf[1] 
+            - self.params['q'] * psiHalf[1]
             - self.params['c2']/2 * np.conj(psiHalf[-1]) * (psiCurrent[0]**2 + psiPrevious[0]**2) 
             + (mu + lam)*psiHalf[1]
         )
@@ -193,6 +196,7 @@ class SpinorBECGroundState2D():
             - (self.params['c0'] - self.params['c2'])/2 * psiDiffTerm[-1] * psiHalf[-1] 
             - (self.params['c0'] + self.params['c2'])/2 *psiSumTerm[-1] * psiHalf[-1] 
             - self.params['trap'] * psiHalf[-1] 
+            - self.params['q'] * psiHalf[-1]
             - self.params['c2']/2 * np.conj(psiHalf[1]) * (psiCurrent[0]**2 + psiPrevious[0]**2) 
             + (mu - lam)*psiHalf[-1]
         )
@@ -241,7 +245,8 @@ class SpinorBECGroundState2D():
             + (self.params['c0'] - self.params['c2'])/2 * ( psiDiffTerm[1] * abs(psiHalf[1])**2 + psiDiffTerm[-1] * abs(psiHalf[-1])**2 ) 
             + self.params['c2'] * ( psiHalf[-1]*np.conj(psiCurrent[0]**2 + psiPrevious[0]**2) * psiHalf[1] 
                                    + np.conj(psiHalf[0]**2) * (psiCurrent[-1]*psiCurrent[1] + psiPrevious[-1]*psiPrevious[1]) ).real 
-            + (self.params['c0'] + self.params['c2'])/2 * ( psiSumTerm[1] * abs(psiHalf[1])**2 + psiSumTerm[-1] * abs(psiHalf[-1])**2 + psiSumTerm[0] * abs(psiHalf[0])**2 )
+            + (self.params['c0'] + self.params['c2'])/2 * ( psiSumTerm[1] * abs(psiHalf[1])**2 + psiSumTerm[-1] * abs(psiHalf[-1])**2 + psiSumTerm[0] * abs(psiHalf[0])**2 ) 
+            + self.params['q'] * (abs(psiHalf[1])**2 + abs(psiHalf[-1])**2) 
         )
         # What direction is correct to roll?
         rolledSpinorX = Spinor( rollWithZeros(psiHalf[1],1,axis=0), rollWithZeros(psiHalf[0],1,axis=0), rollWithZeros(psiHalf[-1],1,axis=0) )
@@ -258,11 +263,13 @@ class SpinorBECGroundState2D():
         
         boundaryD = -(boundary[1] + boundary[0] + boundary[-1])/2
         # gradTermD = -( rolls[1] + rolls[0] + rolls[-1] )/2
-        trapTermD = self.params['trap'] * ( abs(psiHalf[1])**2 + abs(psiHalf[0])**2 + abs(psiHalf[-1])**2 )
+        trapTermD = self.params['trap'] * ( abs(psiHalf[1])**2 + abs(psiHalf[0])**2 + abs(psiHalf[-1])**2 ) 
+                     
 
         posIndependentTermF = ( 
             (self.params['c0'] - self.params['c2'])/2 * ( psiDiffTerm[1] * abs(psiHalf[1])**2 - psiDiffTerm[-1] * abs(psiHalf[-1])**2 ) 
             + (self.params['c0'] + self.params['c2'])/2 * ( psiSumTerm[1] * abs(psiHalf[1])**2 -  psiSumTerm[-1] * abs(psiHalf[-1])**2)
+            +  self.params['q'] * (abs(psiHalf[1])**2 - abs(psiHalf[-1])**2) 
         )
 
         gradTermF =  ( (1/(2*self.dx**2))*( abs(rolledSpinorX[1]-psiHalf[1])**2 - abs(rolledSpinorX[-1]-psiHalf[-1])**2  ) + 
@@ -271,7 +278,7 @@ class SpinorBECGroundState2D():
         boundaryF = -(boundary[1] - boundary[-1])/2
         
         # gradTermF = -( rolls[1] - rolls[-1] )/2
-        trapTermF = self.params['trap'] * ( abs(psiHalf[1])**2 - abs(psiHalf[-1])**2 )
+        trapTermF = (self.params['trap']) * ( abs(psiHalf[1])**2 - abs(psiHalf[-1])**2 )
         
         if self.gradDebug:
             return ( np.sum( gradTermD ) + boundaryD, np.sum( gradTermF ) + boundaryF )
@@ -280,6 +287,110 @@ class SpinorBECGroundState2D():
             return ( np.sum( posIndependentTermD ), np.sum( posIndependentTermF ) )
 
         return ( np.sum( gradTermD + trapTermD + posIndependentTermD ), np.sum( gradTermF + trapTermF + posIndependentTermF ) )
+    
+    
+
+class Spinor2dGroundStatePrime():
+    def __init__(self, grid, params,  psi ):
+        """
+        Parameters:
+        -----------
+        grid : 2D Grid object
+        params : dict with 'c0', 'c2', 'c4', 'trap', 'dt', 'q'
+        psi : Spinor Object
+        """
+        self.grid                             = grid
+        self.params:dict                      = params
+        self.dx:float                         = grid.grid_spacing_x
+        self.dy:float                         = grid.grid_spacing_y
+        self.dt:float                         = params['dit'] if 'dit' in params.keys() else params['dt']
+        self.waveFunction:Spinor              = psi 
+        
+
+
+    def fullStep( self ):
+        tempWfn = self.nonlinearStep()
+        self.waveFunction = self.projection(tempWfn)
+    
+    def nonlinearStep( self ):
+        psi = self.waveFunction
+
+        selfInteractionTerm = ( self.params['trap'] + self.params['c0']*(abs(psi[1])**2 + abs(psi[0])**2 + abs(psi[-1])**2) ) 
+
+        # TODO are not currently working?
+        numericalStabTerm = Spinor(
+            self.params['c2'] * (abs(psi[1])**2 + abs(psi[0])**2 - abs(psi[-1])**2 ) 
+                +  self.params['q'],
+
+            self.params['c2'] * ( abs(psi[1])**2 + abs(psi[-1])**2) ,
+
+            self.params['c2'] * ( abs(psi[-1])**2 + abs(psi[0])**2 - abs(psi[1])**2 ) 
+                + self.params['q']
+
+        )
+
+        interactionTerm = Spinor(
+
+            self.params['c2'] * np.conj(psi[-1])*psi[0]**2 ,
+
+            self.params['c2'] * 2 * np.conj(psi[0])*psi[1]*psi[-1],
+
+            self.params['c2'] * np.conj(psi[1])*psi[0]**2
+
+        )
+
+        # Set up linear algebra problem Ax = b
+
+        constant = Spinor(*[psi[i]/self.dt - interactionTerm[i] for i in [1,0,-1]])
+
+        nx = self.grid.shape[0]
+        ny = self.grid.shape[1]
+        shapeNum = nx * ny
+        nyDiag = [-1/(2*self.dy**2)]*nx*(ny-1)
+        nxDiag = ([-1/(2*self.dx**2)]*(nx-1) + [0]) * ny
+
+        
+
+        matrixPlus1 = diags( [ [ 1/self.dt + 1/(self.dx**2) + 1/(self.dy**2) ]*shapeNum + selfInteractionTerm.flatten() + numericalStabTerm[1].flatten(), nxDiag, nxDiag, nyDiag, nyDiag], 
+                             [0,1,-1,nx, -nx], shape = (shapeNum,shapeNum), format='csr' )
+
+        tmpP1 = spsolve( matrixPlus1, constant[1].flatten() ).reshape(self.grid.shape)
+
+        matrixZero = diags([ [ 1/self.dt +  1/(self.dx**2) + 1/(self.dy**2) ]*shapeNum + selfInteractionTerm.flatten() + numericalStabTerm[0].flatten() , nxDiag, nxDiag, nyDiag, nyDiag], 
+                             [0,1,-1,nx, -nx], shape = (shapeNum,shapeNum), format='csr' )
+
+        tmp0 = spsolve( matrixZero, constant[0].flatten() ).reshape(self.grid.shape)
+
+        matrixMinus1 = diags( [ [ 1/self.dt + 1/(self.dx**2) + 1/(self.dy**2) ]*shapeNum + selfInteractionTerm.flatten() + numericalStabTerm[-1].flatten(), nxDiag, nxDiag, nyDiag, nyDiag], 
+                             [0,1,-1,nx, -nx], shape = (shapeNum,shapeNum), format='csr' )
+
+        tmpM1 = spsolve( matrixMinus1, constant[-1].flatten() ).reshape(self.grid.shape)
+
+       
+
+        return Spinor( tmpP1, tmp0, tmpM1, )
+
+    def projection( self, psi ):
+        mag = self.waveFunction.mag()
+        num = self.waveFunction.number()
+        magNorm = mag / num
+
+        zeroProjector = np.sqrt(1-magNorm**2)/(np.sqrt(np.sum(abs(psi[0])**2)/num
+                                                      + np.sqrt( 4*(1-magNorm**2) * np.sum(abs(psi[1])**2)*np.sum(abs(psi[-1])**2)/num**2 
+                                                      + magNorm**2 * np.sum(abs(psi[0])**4)/num**2 ) ) )
+
+        plusProjector = np.sqrt(1 + magNorm - zeroProjector**2 * np.sum(abs(psi[0])**2)/num)/np.sqrt(2 * np.sum(abs(psi[1])**2)/num)
+        minusProjector = np.sqrt(1 - magNorm - zeroProjector**2 * np.sum(abs(psi[0])**2)/num)/np.sqrt(2 * np.sum(abs(psi[-1])**2)/num)
+
+        projectedSpinor = Spinor(
+            psi[1] * plusProjector,
+            psi[0] * zeroProjector,
+            psi[-1] * minusProjector,
+        )
+
+        return projectedSpinor
+
+  
 
 
 
